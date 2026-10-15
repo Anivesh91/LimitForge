@@ -1,7 +1,7 @@
 {
-  "name": "smart-rate",
+  "name": "rateshield",
   "version": "2.0.0",
-  "description": "Production-ready in-memory and Redis-backed Fixed Window rate limiting middleware for Express.js",
+  "description": "Distributed, atomic rate-limiting middleware for Express.js powered by Redis Lua and in-memory store",
   "type": "module",
   "main": "./src/index.js",
   "exports": "./src/index.js",

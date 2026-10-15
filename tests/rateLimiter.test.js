@@ -6,10 +6,7 @@ import { rateLimiter } from '../src/index.js';
 import demoRoutes from '../examples/express-demo/routes.js';
 import { cleanupExpiredRecords } from '../src/limiter/rateLimiter.js';
 
-/**
- * Helper to build an Express app configured with trust proxy for test-only IP spoofing.
- * Production/demo app keeps its own configuration without hardcoded trust proxy.
- */
+// Test helper: Express app with trust proxy enabled for IP simulation
 function createTestApp() {
   const app = express();
   app.set('trust proxy', true);

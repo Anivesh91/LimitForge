@@ -5,10 +5,7 @@ import request from 'supertest';
 import { rateLimiter } from '../src/index.js';
 import { RedisStore } from '../src/stores/redisStore.js';
 
-/**
- * Creates an in-memory Redis test client simulating INCR, PEXPIRE, and PTTL.
- * Maintains realistic millisecond TTL expiration semantics.
- */
+// Test helper: In-memory mock Redis client supporting INCR, PEXPIRE, and PTTL
 function createSimulatedRedisClient() {
   const data = new Map();
 

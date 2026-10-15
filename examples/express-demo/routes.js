@@ -21,10 +21,7 @@ router.get(
   testController
 );
 
-/**
- * Route 2: POST /api/login
- * Policy: 3 requests per 60 seconds (Simulates strict endpoint protection)
- */
+// POST /api/login — Strict limit for auth/sensitive actions (3 req / 60s)
 router.post(
   '/login',
   rateLimiter({
@@ -34,10 +31,7 @@ router.post(
   loginController
 );
 
-/**
- * Route 3: GET /api/public
- * Policy: 10 requests per 60 seconds (Simulates higher allowance public endpoint)
- */
+// GET /api/public — Standard public endpoint quota (10 req / 60s)
 router.get(
   '/public',
   rateLimiter({

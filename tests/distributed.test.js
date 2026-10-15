@@ -5,9 +5,7 @@ import request from 'supertest';
 import { rateLimiter } from '../src/index.js';
 import { RedisStore } from '../src/stores/redisStore.js';
 
-/**
- * Creates a shared simulated Redis client backing multiple app instances.
- */
+// Test helper: Shared mock Redis client for multi-instance tests
 function createSharedRedisClient() {
   const store = new Map();
   let queue = Promise.resolve();

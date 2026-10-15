@@ -5,13 +5,7 @@ import request from 'supertest';
 import { rateLimiter } from '../src/index.js';
 import { RedisStore } from '../src/stores/redisStore.js';
 
-/**
- * Simulates Redis's atomic Lua script execution guarantee:
- * Redis executes a Lua script atomically with respect to other Redis commands.
- * Commands from other clients cannot interleave with the script while it is executing.
- * (Note: Node.js handles incoming HTTP requests concurrently; Redis guarantees atomic
- * execution of each Lua script without command interleaving).
- */
+// Mock Redis client simulating atomic Lua script execution
 function createAtomicRedisClient() {
   const store = new Map();
   let queue = Promise.resolve();
@@ -86,7 +80,6 @@ describe('SmartRate v2 — Concurrency & Atomicity Verification', () => {
     const allowedResponses = responses.filter((r) => r.status === 200);
     const blockedResponses = responses.filter((r) => r.status === 429);
 
-    // Automated assertions verifying quota enforcement under concurrency
     assert.equal(allowedResponses.length, LIMIT, `Expected exactly ${LIMIT} allowed requests, got ${allowedResponses.length}`);
     assert.equal(blockedResponses.length, TOTAL_REQUESTS - LIMIT, `Expected exactly ${TOTAL_REQUESTS - LIMIT} blocked requests, got ${blockedResponses.length}`);
 

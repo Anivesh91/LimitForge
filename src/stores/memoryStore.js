@@ -1,9 +1,5 @@
 /**
- * SmartRate — MemoryStore
- *
- * In-memory Fixed Window store backed by a JavaScript Map.
- * Encapsulates state tracking, window expiration, and periodic stale-entry cleanup.
- * Implements the SmartRate Store contract: consume({ key, limit, windowMs }).
+ * In-memory Fixed Window store using Map with background TTL cleanup.
  */
 export class MemoryStore {
   /**

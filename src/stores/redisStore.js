@@ -8,10 +8,7 @@ const SCRIPT_PATH = path.join(__dirname, '../scripts/fixedWindow.lua');
 const FIXED_WINDOW_LUA = fs.readFileSync(SCRIPT_PATH, 'utf-8');
 
 /**
- * SmartRate — RedisStore
- *
- * Distributed Fixed Window rate-limiting store backed by Redis.
- * Executes state transitions atomically via an embedded Lua script.
+ * Distributed Fixed Window store backed by Redis and atomic Lua script.
  */
 export class RedisStore {
   /**
