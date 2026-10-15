@@ -166,7 +166,8 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
           algorithm: 'token-bucket',
           keyGenerator: (req) => req.headers['x-tenant-id'],
           capacity: (req) => (req.headers['x-plan'] === 'enterprise' ? 10 : 3),
-          refillRate: (req) => (req.headers['x-plan'] === 'enterprise' ? 5 : 1)
+          refillRate: (req) => (req.headers['x-plan'] === 'enterprise' ? 5 : 1),
+          refillIntervalMs: 60_000
         }),
         (req, res) => res.status(200).json({ success: true })
       );
