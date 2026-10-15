@@ -127,8 +127,19 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
   });
 });
 
-// 5. Chaos & Resilience Testing Endpoints
-app.post('/api/chaos/break-store', (req, res) => {
+// 5. Chaos & Resilience Testing Endpoints (Secured against unauthorized public access)
+const checkChaosAllowed = (req, res, next) => {
+  if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_CHAOS) {
+    return res.status(403).json({ error: 'Chaos testing is disabled in production' });
+  }
+  const secret = process.env.CHAOS_SECRET;
+  if (secret && req.headers['x-chaos-secret'] !== secret) {
+    return res.status(401).json({ error: 'Unauthorized: Invalid x-chaos-secret' });
+  }
+  next();
+};
+
+app.post('/api/chaos/break-store', checkChaosAllowed, (req, res) => {
   chaosActive = true;
   res.json({
     status: 'chaos_activated',
@@ -136,7 +147,7 @@ app.post('/api/chaos/break-store', (req, res) => {
   });
 });
 
-app.post('/api/chaos/heal-store', (req, res) => {
+app.post('/api/chaos/heal-store', checkChaosAllowed, (req, res) => {
   chaosActive = false;
   res.json({
     status: 'chaos_deactivated',

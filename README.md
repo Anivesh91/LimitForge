@@ -1,10 +1,19 @@
-# SmartRate v7
+# RateShield
 
-A production-ready distributed rate limiting middleware for Express.js supporting **Full Observability (Prometheus, Grafana, OpenTelemetry)**, **High-Precision Performance Benchmarks**, **Production Resilience & Store Fault Tolerance**, **Circuit Breaker & Dual-Store Failover**, **Token Bucket + Controlled Burst**, **Rolling Sliding Window**, and **Fixed Window** algorithms, **Custom Client Identity** (API Key, User ID, Multi-Tenant), and **Dynamic Tier-Based Policies**.
+[![npm version](https://img.shields.io/npm/v/rateshield.svg)](https://www.npmjs.com/package/rateshield)
+[![CI Status](https://github.com/Anivesh91/RateShield/actions/workflows/ci.yml/badge.svg)](https://github.com/Anivesh91/RateShield/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
 
-SmartRate provides high-performance, zero-dependency in-memory rate limiting and distributed, atomic Redis-backed rate limiting with seamless fallback, timeout guards, and self-healing recovery.
+Production-ready distributed rate limiting and resilience middleware for Express.js supporting **Full Observability (Prometheus, Grafana, OpenTelemetry)**, **High-Precision Performance Benchmarks**, **Production Resilience & Store Fault Tolerance**, **Circuit Breaker & Dual-Store Failover**, **Token Bucket + Controlled Burst**, **Rolling Sliding Window**, and **Fixed Window** algorithms, **Custom Client Identity** (API Key, User ID, Multi-Tenant), and **Dynamic Tier-Based Policies**.
 
-> **Repository Note:** The project is named **SmartRate** (npm package `smart-rate`), hosted in the [RateShield](https://github.com/Anivesh91/RateShield) repository.
+## Installation
+
+```bash
+npm install rateshield
+```
+
+## Quick Start
 
 ```javascript
 import express from 'express';
@@ -16,7 +25,7 @@ import {
   MemoryStore,
   createPrometheusExporter,
   OpenTelemetryBridge
-} from 'smart-rate';
+} from 'rateshield';
 
 const app = express();
 const redisClient = createClient({
@@ -432,6 +441,15 @@ npm test
   - **Production Observability Stack**: Complete Docker Compose setup with Prometheus, Grafana, Redis, and SmartRate, paired with an automated multi-stage traffic simulator (`examples/observability-stack/`).
   - **Security & Identity Hardening**: Defensive clamping of client identifiers to 256 characters (`MAX_IDENTIFIER_LENGTH = 256`) and optional cryptographic SHA-256 hashing (`hashClientIdentifier: true`) to mask raw API tokens in Redis storage.
   - **Nanosecond Benchmarks**: Realistic, empirical overhead measurement (`npm run benchmark`) using `process.hrtime.bigint()`.
+* **v8.0.0 (Release & Production Hardening)**:
+  - **Official NPM Package Name**: Formally released as `rateshield` with clean packaging metadata and homepage.
+  - **Comprehensive TypeScript Definitions (`index.d.ts`)**: Full type definitions covering all options, algorithms, stores, circuit breakers, and telemetry exports.
+  - **Production Tarball Whitelist (`files`)**: Clean packaging including only runtime code (`src/`, `index.d.ts`, `README.md`, `LICENSE`), eliminating internal tests and dev assets.
+  - **Official MIT License**: Added root `LICENSE` file with official copyright.
+  - **Production Proxy Configuration**: Enabled `trust proxy` in demo app for accurate client IP resolution behind Render, Railway, Cloudflare, and AWS ALB.
+  - **Smart Redis-Backed Demo**: Live Express demo auto-detects `REDIS_URL` for distributed rate limiting with graceful fallback to `MemoryStore` and `/api/status` healthcheck.
+  - **Deployment Security Hardening**: Bound Redis to `127.0.0.1:6379`, parameterized Grafana admin secrets, and authenticated chaos failure injection endpoints.
+  - **GitHub Actions CI/CD Pipeline**: Multi-version test matrix (Node.js 18, 20, 22) with live Redis service container.
 
 ---
 
