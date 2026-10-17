@@ -3,36 +3,8 @@ import { MemoryStore } from './memoryStore.js';
 import { CircuitBreaker } from '../resilience/circuitBreaker.js';
 import { withTimeout } from '../resilience/timeoutGuard.js';
 
-/**
- * SmartRate — ResilientStore
- *
- * Dual-store resilience wrapper combining a primary distributed store (e.g. RedisStore)
- * with an automatic fallback local store (e.g. MemoryStore).
- *
- * Architecture:
- * - When primaryStore is healthy: All operations execute against primaryStore (distributed state).
- * - When primaryStore fails or times out: Operation fails over transparently to fallbackStore (local state).
- * - When CircuitBreaker is OPEN: primaryStore calls are completely bypassed (zero network hammering);
- *   traffic is served directly from fallbackStore.
- * - When CircuitBreaker is HALF_OPEN: A single-flight canary probe tests primaryStore. If successful,
- *   traffic recovers seamlessly back to primaryStore. If failed, traffic remains on fallbackStore.
- *
- * CRITICAL V6 BOUNDARY:
- * Local memory quotas are NOT backfilled or synchronized into Redis upon recovery.
- * In a multi-instance cluster, in-memory quotas apply per-process during degraded failover.
- * Timed-out primary consume operations are not cancelled and may complete after fallback
- * consumption, potentially counting the same request twice; stores currently have no cancellation path.
- */
 export class ResilientStore extends EventEmitter {
-  /**
-   * @param {Object} options
-   * @param {Object} options.primaryStore - Primary distributed store (must implement consume())
-   * @param {Object} [options.fallbackStore] - Local fallback store (defaults to new MemoryStore())
-   * @param {CircuitBreaker|Object|boolean} [options.circuitBreaker] - Circuit breaker instance or options
-   * @param {number} [options.timeoutMs=250] - Primary store operation timeout in milliseconds
-   * @param {number} [options.failureThreshold=5] - Consecutive failures before opening circuit
-   * @param {number} [options.resetTimeoutMs=10000] - Duration in ms before testing recovery in HALF_OPEN
-   */
+  
   constructor(options = {}) {
     super();
 
@@ -88,12 +60,6 @@ export class ResilientStore extends EventEmitter {
     }
   }
 
-  /**
-   * Consumes quota using primaryStore, falling back gracefully to fallbackStore upon failure.
-   *
-   * @param {Object} params - Store consume parameters
-   * @returns {Promise<Object>} Rate limit result with resilience metadata
-   */
   async consume(params) {
     const runPrimary = () =>
       this.timeoutMs
@@ -119,7 +85,6 @@ export class ResilientStore extends EventEmitter {
       primaryError = err;
     }
 
-    // Primary store failed, timed out, or circuit breaker blocked execution
     this.emit('fallback', {
       key: params.key,
       error: primaryError,
@@ -137,12 +102,6 @@ export class ResilientStore extends EventEmitter {
     };
   }
 
-  /**
-   * Evicts expired records across both stores.
-   *
-   * @param {number} [now=Date.now()]
-   * @returns {number} Total evicted entries
-   */
   cleanupExpiredRecords(now) {
     let cleaned = 0;
     if (typeof this.primaryStore.cleanupExpiredRecords === 'function') {
@@ -154,11 +113,6 @@ export class ResilientStore extends EventEmitter {
     return cleaned;
   }
 
-  /**
-   * Returns a snapshot of ResilientStore health and breaker metrics.
-   *
-   * @returns {Object}
-   */
   getStats() {
     return {
       circuitBreaker: this.circuitBreaker ? this.circuitBreaker.getStats() : null,

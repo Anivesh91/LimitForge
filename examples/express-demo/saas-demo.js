@@ -8,76 +8,61 @@ const PORT = Number(process.env.SAAS_DEMO_PORT || 3005);
 app.set('trust proxy', true);
 app.use(express.json());
 
-// In-memory store for demonstration
+// in memory store for demonstration
 const memoryStore = new MemoryStore();
 
-// Simulated customer database
+// simulated customer database
 const API_KEY_REGISTRY = {
   'ak_free_123': { name: 'Acme Starter', tier: 'free' },
   'ak_pro_456': { name: 'Beta Scale', tier: 'pro' },
   'ak_ent_789': { name: 'Global Enterprise', tier: 'enterprise' }
 };
 
-// Tier configurations
+// tier configurations
 const TIER_POLICIES = {
-  free: { capacity: 5, refillRate: 1 },         // 5 burst, 1 token/sec
-  pro: { capacity: 20, refillRate: 5 },        // 20 burst, 5 tokens/sec
-  enterprise: { capacity: 100, refillRate: 25 } // 100 burst, 25 tokens/sec
+  free: { capacity: 5, refillRate: 1 }, // 5 burst 1 token sec
+  pro: { capacity: 20, refillRate: 5 }, // 20 burst 5 tokens sec
+  enterprise: { capacity: 100, refillRate: 25 } // 100 burst 25 tokens sec
 };
 
-/**
- * Middleware: Simulates authentication & customer profile lookup
- */
 app.use((req, res, next) => {
   const apiKey = req.headers['x-api-key'];
   if (apiKey && API_KEY_REGISTRY[apiKey]) {
     req.customer = API_KEY_REGISTRY[apiKey];
     req.apiKey = apiKey;
   } else {
-    // Unauthenticated anonymous user -> default to free tier
     req.customer = { name: 'Anonymous Public', tier: 'free' };
     req.apiKey = req.ip || '127.0.0.1';
   }
   next();
 });
 
-/**
- * SmartRate v4 SaaS Rate Limiter Middleware
- * Uses Token Bucket with dynamic per-tenant identity, capacity, refill, and cost.
- */
 const saasLimiter = rateLimiter({
   store: memoryStore,
   algorithm: 'token-bucket',
 
-  // 1. Custom Identity: Isolates buckets per API Key or Client IP
   keyGenerator: (req) => req.apiKey,
 
-  // 2. Dynamic Capacity: Evaluated per-request based on customer subscription tier
   capacity: (req) => {
     const tier = req.customer?.tier || 'free';
     return TIER_POLICIES[tier].capacity;
   },
 
-  // 3. Dynamic Refill Rate: Continuous token generation rate based on tier
   refillRate: (req) => {
     const tier = req.customer?.tier || 'free';
     return TIER_POLICIES[tier].refillRate;
   },
 
-  // 4. Dynamic Weighted Cost: Heavy endpoints consume more tokens than standard reads
   cost: (req) => {
     if (req.path.includes('/export') || req.body?.heavy === true) {
-      return 5; // Heavy compute operation consumes 5 tokens
+      return 5;
     }
-    return 1; // Standard read consumes 1 token
+    return 1; // standard read consumes 1 token
   }
 });
 
 app.use('/api', saasLimiter);
 
-/**
- * Standard Read Endpoint (Cost: 1 token)
- */
 app.get('/api/data', (req, res) => {
   res.json({
     success: true,
@@ -89,9 +74,6 @@ app.get('/api/data', (req, res) => {
   });
 });
 
-/**
- * Heavy Compute / Export Endpoint (Cost: 5 tokens)
- */
 postExportHandler:
 app.post('/api/export', (req, res) => {
   res.json({
@@ -104,9 +86,6 @@ app.post('/api/export', (req, res) => {
   });
 });
 
-/**
- * Root Route: Usage Guide & Sample Curl Commands
- */
 app.get('/', (req, res) => {
   res.json({
     title: 'SmartRate v4 — SaaS Multi-Tier & Dynamic Policy Demo',
@@ -143,7 +122,7 @@ export function startSaasDemoServer(port = PORT) {
   });
 }
 
-// Auto-start server if executed directly from CLI
+// auto start server if executed directly from cli
 if (process.argv[1] && process.argv[1].endsWith('saas-demo.js')) {
   startSaasDemoServer();
 }

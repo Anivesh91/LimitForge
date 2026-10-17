@@ -5,19 +5,15 @@ import request from 'supertest';
 import { rateLimiter } from '../src/index.js';
 import { RedisStore } from '../src/stores/redisStore.js';
 
-/**
- * Creates a simulated Redis client supporting both Fixed Window strings and Sliding Window ZSETs.
- * Models Redis's non-interleaving Lua script execution guarantees.
- */
 function createSimulatedRedisClient() {
-  const zsets = new Map(); // key -> Array<{ score: number, member: string }>
-  const strings = new Map(); // key -> { count: number, expiresAt: number }
+  const zsets = new Map();
+  const strings = new Map();
 
   return {
     async eval(script, options) {
       const key = options.keys[0];
 
-      // Sliding Window Lua simulation
+      // sliding window lua simulation
       if (options.arguments.length >= 4) {
         const now = Number(options.arguments[0]);
         const windowMs = Number(options.arguments[1]);
@@ -28,27 +24,26 @@ function createSimulatedRedisClient() {
 
         let entries = zsets.get(key) || [];
 
-        // 1. ZREMRANGEBYSCORE: Prune expired entries (score <= cutoff)
         entries = entries.filter((e) => e.score > cutoff);
 
         const currentCount = entries.length;
         let allowed = 0;
 
         if (currentCount < limit) {
-          // 2. ZADD: Add request with score = now and unique member
+          // zadd add request with score now and unique member
           entries.push({ score: now, member });
           allowed = 1;
         }
 
         zsets.set(key, entries);
 
-        // 3. ZRANGE 0 0 WITHSCORES: Find oldest active timestamp
+        // zrange 0 0 withscores find oldest active timestamp
         const oldestScore = entries.length > 0 ? entries[0].score : now;
 
         return [allowed, entries.length, oldestScore];
       }
 
-      // Fixed Window Lua simulation
+      // fixed window lua simulation
       const windowMs = Number(options.arguments[0]);
       const now = Date.now();
       let entry = strings.get(key);
@@ -97,26 +92,26 @@ describe('SmartRate v3 — Redis Sliding Window Tests', () => {
     const windowMs = 60_000;
     const t0 = 100_000;
 
-    // Request 1: Allowed, remaining = 2
+    // request 1 allowed remaining 2
     const r1 = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 });
     assert.equal(r1.allowed, true);
     assert.equal(r1.count, 1);
     assert.equal(r1.remaining, 2);
     assert.ok(r1.reset > 0);
 
-    // Request 2: Allowed, remaining = 1
+    // request 2 allowed remaining 1
     const r2 = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 1000 });
     assert.equal(r2.allowed, true);
     assert.equal(r2.count, 2);
     assert.equal(r2.remaining, 1);
 
-    // Request 3: Allowed, remaining = 0 (exact limit reached)
+    // request 3 allowed remaining 0 exact limit reached
     const r3 = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 2000 });
     assert.equal(r3.allowed, true);
     assert.equal(r3.count, 3);
     assert.equal(r3.remaining, 0);
 
-    // Request 4: Blocked with HTTP 429
+    // request 4 blocked with http 429
     const r4 = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 3000 });
     assert.equal(r4.allowed, false);
     assert.equal(r4.count, 3);
@@ -132,21 +127,19 @@ describe('SmartRate v3 — Redis Sliding Window Tests', () => {
     const limit = 2;
     const windowMs = 10_000;
 
-    // Req 1 at t = 10_000
+    // first request
     await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 10_000 });
-    // Req 2 at t = 15_000 (quota exhausted)
+    // second request
     await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 15_000 });
 
-    // Blocked at t = 18_000
+    // blocked request
     const blocked = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 18_000 });
     assert.equal(blocked.allowed, false);
 
-    // At t = 20_000: cutoff = 10_000.
-    // The timestamp 10_000 is <= cutoff, so it is pruned by ZREMRANGEBYSCORE.
-    // Exactly 1 slot opens up!
+    // slot opens up
     const recovered = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 20_000 });
     assert.equal(recovered.allowed, true);
-    assert.equal(recovered.count, 2); // 15_000 and 20_000 are in the active window
+    assert.equal(recovered.count, 2);
     assert.equal(recovered.remaining, 0);
   });
 
@@ -159,7 +152,6 @@ describe('SmartRate v3 — Redis Sliding Window Tests', () => {
     const windowMs = 60_000;
     const sameTimestamp = 1727181000000;
 
-    // Send 3 requests with the exact same millisecond timestamp
     const resA = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: sameTimestamp });
     const resB = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: sameTimestamp });
     const resC = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: sameTimestamp });
@@ -168,7 +160,6 @@ describe('SmartRate v3 — Redis Sliding Window Tests', () => {
     assert.equal(resB.allowed, true);
     assert.equal(resC.allowed, true);
 
-    // Verify all 3 entries exist in the ZSET with unique member identifiers
     const entries = redisClient.getZsetEntries(key);
     assert.equal(entries.length, 3, 'Expected 3 distinct ZSET members despite identical scores');
 
@@ -192,14 +183,13 @@ describe('SmartRate v3 — Redis Sliding Window Tests', () => {
 
     const clientIp = '10.0.0.99';
 
-    // Exhaust Fixed Window quota
+    // exhaust fixed window quota
     const f1 = await request(app).get('/api/algo-test?algo=fixed').set('X-Forwarded-For', clientIp);
     assert.equal(f1.status, 200);
 
     const f2 = await request(app).get('/api/algo-test?algo=fixed').set('X-Forwarded-For', clientIp);
     assert.equal(f2.status, 429);
 
-    // Sliding Window on same route and IP must have independent fresh quota!
     const s1 = await request(app).get('/api/algo-test?algo=sliding').set('X-Forwarded-For', clientIp);
     assert.equal(s1.status, 200);
 

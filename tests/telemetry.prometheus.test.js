@@ -175,11 +175,11 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         metricsCollector: collector
       });
 
-      // API Routes
+      // api routes
       app.get('/api/users/:id', limiter, (req, res) => res.json({ id: req.params.id }));
       app.post('/api/checkout', limiter, (req, res) => res.json({ ok: true }));
 
-      // Standard Prometheus scrape endpoint
+      // standard prometheus scrape endpoint
       app.get('/metrics', createPrometheusExporter({ collector }));
     });
 
@@ -190,32 +190,31 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         res.headers['content-type'],
         'text/plain; version=0.0.4; charset=utf-8'
       );
-      // Circuit breaker default state should be present
+      // circuit breaker default state should be present
       assert.ok(res.text.includes('smartrate_circuit_breaker_state 0'));
     });
 
     it('scrapes realistic multi-route rate limiting and failure traffic', async () => {
-      // 1. Send 2 allowed requests to /api/users/100
+      // send 2 allowed requests to api users 100
       await request(app).get('/api/users/100');
       await request(app).get('/api/users/100');
 
-      // 2. Third request exceeds limit -> 429
+      // third request exceeds limit 429
       await request(app).get('/api/users/100');
 
-      // 3. Send 1 request to /api/checkout -> 200
+      // send 1 request to api checkout 200
       await request(app).post('/api/checkout');
 
-      // 4. Scrape /metrics
+      // scrape metrics
       const scrape = await request(app).get('/metrics');
       assert.equal(scrape.status, 200);
 
       const body = scrape.text;
 
-      // Verify HELP and TYPE headers
+      // verify help and type headers
       assert.ok(body.includes('# HELP smartrate_requests_total Total number of rate limiter requests evaluated.'));
       assert.ok(body.includes('# TYPE smartrate_requests_total counter'));
 
-      // Verify allowed and blocked metrics with normalized route
       assert.ok(
         body.includes(
           'smartrate_requests_total{algorithm="sliding-window",method="GET",normalized_route="/api/users/:id",outcome="allowed",store="memory"} 2'
@@ -232,7 +231,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         )
       );
 
-      // Verify store duration histogram was generated
+      // verify store duration histogram was generated
       assert.ok(body.includes('# TYPE smartrate_store_duration_seconds histogram'));
       assert.ok(body.includes('smartrate_store_duration_seconds_bucket{le="+Inf",store="memory"} 4'));
       assert.ok(body.includes('smartrate_store_duration_seconds_count{store="memory"} 4'));
@@ -268,7 +267,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
       };
 
       brokenApp.get('/metrics', createPrometheusExporter({ collector: brokenCollector }));
-      // Express error handling middleware
+      // express error handling middleware
       brokenApp.use((err, req, res, next) => {
         res.status(500).json({ error: err.message });
       });

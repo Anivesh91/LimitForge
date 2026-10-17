@@ -12,12 +12,6 @@ import { OpenTelemetryBridge } from '../telemetry/openTelemetryBridge.js';
 const defaultMemoryStore = new MemoryStore();
 const attachedBreakerCollectors = new WeakMap();
 
-/**
- * Scans the default in-memory store and evicts expired records.
- * Exported for backwards compatibility with test assertions.
- *
- * @returns {number}
- */
 export function cleanupExpiredRecords() {
   return defaultMemoryStore.cleanupExpiredRecords();
 }
@@ -238,27 +232,6 @@ function setRateLimitHeaders(res, { limit, remaining, reset, retryAfter }) {
   }
 }
 
-/**
- * SmartRate rate limiter middleware factory.
- *
- * @param {Object} options
- * @param {number|Function} [options.limit] - Max requests allowed in the window (or dynamic policy function)
- * @param {number|Function} [options.windowMs] - Window duration in milliseconds (or dynamic function)
- * @param {'fixed-window'|'sliding-window'|'token-bucket'} [options.algorithm='fixed-window'] - Selected algorithm
- * @param {number|Function} [options.capacity] - Token bucket capacity (or dynamic function)
- * @param {number|Function} [options.refillRate] - Token bucket refill rate (or dynamic function)
- * @param {number|Function} [options.refillIntervalMs=1000] - Refill interval duration in milliseconds (or dynamic function)
- * @param {number|Function} [options.cost=1] - Request cost in tokens (or dynamic function)
- * @param {number} [options.timeoutMs] - Optional store operation timeout in milliseconds
- * @param {'fail-open'|'fail-closed'|'error'|Function} [options.onStoreError] - Policy when store errors or times out
- * @param {boolean|Object|CircuitBreaker} [options.circuitBreaker] - Circuit breaker configuration or instance
- * @param {number} [options.failureThreshold=5] - Consecutive failures before opening circuit
- * @param {number} [options.resetTimeoutMs=10000] - Duration in ms before testing recovery in HALF_OPEN
- * @param {number} [options.successThreshold=1] - Consecutive successful probes in HALF_OPEN to close circuit
- * @param {Function} [options.keyGenerator] - Custom client identifier extractor
- * @param {Object} [options.store] - Store implementation (defaults to MemoryStore)
- * @returns {import('express').RequestHandler}
- */
 export function rateLimiter(options = {}) {
   validateOptions(options);
 
@@ -355,14 +328,14 @@ export function rateLimiter(options = {}) {
             collector.recordCircuitBreakerState(state, breakerLabels);
           }
         } catch {
-          // Safe telemetry
+          // safe telemetry
         }
       };
       breaker.on('stateChange', (evt) => recordCircuitBreakerState(evt.to));
       try {
         recordCircuitBreakerState(breaker.getState());
       } catch {
-        // Safe telemetry
+        // safe telemetry
       }
     }
   }
@@ -373,7 +346,6 @@ export function rateLimiter(options = {}) {
     try {
       fn();
     } catch {
-      // Telemetry failure must never disrupt request processing
     }
   };
 
@@ -416,11 +388,11 @@ export function rateLimiter(options = {}) {
         hashClientIdentifier
       });
 
-      // 1. Resolve dynamic limit & windowMs
+      // resolve dynamic limit windowms
       const resolvedLimit = typeof limit === 'function' ? await limit(req) : limit;
       const resolvedWindowMs = typeof windowMs === 'function' ? await windowMs(req) : windowMs;
 
-      // 2. Resolve dynamic capacity & refillRate
+      // resolve dynamic capacity refillrate
       const resolvedCapacity = typeof capacity === 'function'
         ? await capacity(req)
         : (capacity ?? resolvedLimit);
@@ -438,7 +410,7 @@ export function rateLimiter(options = {}) {
         resolvedRefillRate = resolvedLimit * (resolvedRefillIntervalMs / resolvedWindowMs);
       }
 
-      // 3. Resolve dynamic request cost
+      // resolve dynamic request cost
       let requestCost = 1;
       if (typeof cost === 'function') {
         requestCost = await cost(req);
@@ -446,7 +418,7 @@ export function rateLimiter(options = {}) {
         requestCost = cost;
       }
 
-      // 4. Validate resolved dynamic values fail-fast
+      // validate resolved dynamic values fail fast
       if (algorithm === 'token-bucket') {
         if (typeof resolvedCapacity !== 'number' || !Number.isInteger(resolvedCapacity) || resolvedCapacity <= 0) {
           throw new RangeError(`SmartRate: Dynamic 'capacity' must resolve to a positive integer (received: ${resolvedCapacity}).`);
@@ -689,7 +661,7 @@ export function rateLimiter(options = {}) {
         try {
           childSpan.end();
         } catch {
-          // Safe boundary
+          // safe boundary
         }
       }
     }

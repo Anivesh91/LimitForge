@@ -145,10 +145,10 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
       assert.equal(record.count, 3);
       assert.ok(Math.abs(record.sum - 0.050) < 1e-6);
 
-      // Buckets:
-      // 0.002 <= 0.005 (1), 0.002 <= 0.010 (1), 0.002 <= 0.050 (1)
-      // 0.008 <= 0.010 (2), 0.008 <= 0.050 (2)
-      // 0.040 <= 0.050 (3)
+      // buckets
+      // 002 0 005 1 0 002 0 010 1 0 002 0 050 1
+      // 008 0 010 2 0 008 0 050 2
+      // 040 0 050 3
       assert.equal(record.buckets.find((b) => b.le === 0.005).count, 1);
       assert.equal(record.buckets.find((b) => b.le === 0.010).count, 2);
       assert.equal(record.buckets.find((b) => b.le === 0.050).count, 3);
@@ -196,7 +196,7 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
     });
 
     it('handles unexpected internal errors silently without throwing', () => {
-      // Passing invalid data types
+      // passing invalid data types
       assert.doesNotThrow(() => {
         collector.incrementCounter(null, null, -5);
         collector.setGauge(undefined, 'not-a-number');
@@ -254,15 +254,15 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
     });
 
     it('records allowed and blocked request counters with normalized route label', async () => {
-      // 1. First request -> 200 OK (allowed)
+      // first request 200 ok allowed
       const res1 = await request(app).get('/api/users/1001');
       assert.equal(res1.status, 200);
 
-      // 2. Second request -> 200 OK (allowed)
+      // second request 200 ok allowed
       const res2 = await request(app).get('/api/users/1001');
       assert.equal(res2.status, 200);
 
-      // 3. Third request -> 429 Too Many Requests (blocked)
+      // third request 429 too many requests blocked
       const res3 = await request(app).get('/api/users/1001');
       assert.equal(res3.status, 429);
 
@@ -284,7 +284,6 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
       assert.ok(blocked);
       assert.equal(blocked.value, 1);
 
-      // Verify store duration histogram recorded 3 observations
       const durationHistograms = snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS];
       assert.ok(durationHistograms);
       assert.equal(durationHistograms[0].count, 3);
@@ -339,16 +338,16 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
       assert.equal(res.headers['ratelimit-degraded'], 'true');
 
       const snapshot = collector.getSnapshot();
-      // Store error recorded
+      // store error recorded
       const storeErrors = snapshot.counters[METRIC_NAMES.STORE_ERRORS_TOTAL];
       assert.equal(storeErrors[0].value, 1);
       assert.equal(storeErrors[0].labels.error_type, 'econnrefused');
 
-      // Degraded request recorded
+      // degraded request recorded
       const degraded = snapshot.counters[METRIC_NAMES.DEGRADED_REQUESTS_TOTAL];
       assert.equal(degraded[0].value, 1);
 
-      // Fail open counts request as allowed
+      // fail open counts request as allowed
       const reqCounters = snapshot.counters[METRIC_NAMES.REQUESTS_TOTAL];
       assert.equal(reqCounters[0].labels.outcome, 'allowed');
     });
@@ -417,13 +416,13 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
 
       app.get('/circuit-test', limiter, (req, res) => res.json({ ok: true }));
 
-      // Initial state: CLOSED (0)
+      // initial state closed 0
       assert.equal(
         collector.getSnapshot().gauges[METRIC_NAMES.CIRCUIT_BREAKER_STATE][0].value,
         CIRCUIT_STATE_GAUGE_VALUES.CLOSED
       );
 
-      // Trigger 2 failures to trip breaker to OPEN (2)
+      // trigger 2 failures to trip breaker to open 2
       await request(app).get('/circuit-test');
       await request(app).get('/circuit-test');
 
@@ -433,15 +432,14 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
         CIRCUIT_STATE_GAUGE_VALUES.OPEN
       );
 
-      // Wait for resetTimeoutMs so it transitions to HALF_OPEN (1) on next probe
       await new Promise((r) => setTimeout(r, 60));
 
-      // Healthy store for half-open probe
+      // healthy store for half open probe
       failingStore.consume = async () => ({ allowed: true, remaining: 4, reset: 1000, retryAfter: 0 });
 
       await request(app).get('/circuit-test');
 
-      // Now back to CLOSED (0)
+      // now back to closed 0
       assert.equal(breaker.isClosed(), true);
       assert.equal(
         collector.getSnapshot().gauges[METRIC_NAMES.CIRCUIT_BREAKER_STATE][0].value,
@@ -572,7 +570,6 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
 
       collector.recordRequest({ outcome: 'allowed', normalized_route: '/route1' });
       collector.recordRequest({ outcome: 'allowed', normalized_route: '/route2' });
-      // No additional series, including _overflow, may exceed the cap.
       collector.recordRequest({ outcome: 'allowed', normalized_route: '/route3' });
       collector.recordRequest({ outcome: 'allowed', normalized_route: '/route4' });
 
@@ -608,14 +605,14 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
       assert.equal(res.headers['ratelimit-degraded'], 'true');
 
       const snapshot = collector.getSnapshot();
-      // Verify store error was recorded
+      // verify store error was recorded
       const storeErrors = snapshot.counters[METRIC_NAMES.STORE_ERRORS_TOTAL];
       assert.ok(storeErrors && storeErrors.length > 0, 'Must record store error');
       assert.equal(storeErrors[0].labels.store, 'redis');
       assert.equal(storeErrors[0].labels.error_type, 'econnrefused');
       assert.equal(storeErrors[0].value, 1);
 
-      // Verify degraded request was recorded
+      // verify degraded request was recorded
       const degraded = snapshot.counters[METRIC_NAMES.DEGRADED_REQUESTS_TOTAL];
       assert.ok(degraded && degraded.length > 0, 'Must record degraded request');
       assert.equal(degraded[0].value, 1);
@@ -629,7 +626,7 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
       rateLimiter({ limit: 10, windowMs: 60000, circuitBreaker: authBreaker, metricsCollector: collector });
       rateLimiter({ limit: 10, windowMs: 60000, circuitBreaker: apiBreaker, metricsCollector: collector });
 
-      // Trip only auth breaker to OPEN
+      // trip only auth breaker to open
       try {
         await authBreaker.execute(() => { throw new Error('Auth store down'); });
       } catch {}

@@ -83,14 +83,14 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
           limit: (req) => {
             const tier = req.headers['x-tier'];
             if (tier === 'pro') return 10;
-            return 3; // Free tier default
+            return 3; // free tier default
           },
           windowMs: 60_000
         }),
         (req, res) => res.status(200).json({ success: true, tier: req.headers['x-tier'] || 'free' })
       );
 
-      // Free user: allowed 3 requests
+      // free user allowed 3 requests
       for (let i = 1; i <= 3; i++) {
         const res = await request(app)
           .get('/api/resource')
@@ -101,7 +101,7 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
         assert.equal(res.headers['ratelimit-remaining'], String(3 - i));
       }
 
-      // 4th request from Free user blocked with 429
+      // 4th request from free user blocked with 429
       const blockedFree = await request(app)
         .get('/api/resource')
         .set('x-api-key', 'key_free_user')
@@ -110,7 +110,7 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
       assert.equal(blockedFree.headers['ratelimit-limit'], '3');
       assert.equal(blockedFree.headers['ratelimit-remaining'], '0');
 
-      // Pro user: allowed up to 10 requests independently
+      // pro user allowed up to 10 requests independently
       for (let i = 1; i <= 8; i++) {
         const res = await request(app)
           .get('/api/resource')
@@ -140,13 +140,13 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
         (req, res) => res.status(200).json({ ok: true })
       );
 
-      // Standard user: limit 2
+      // standard user limit 2
       await request(app).get('/api/sliding-tier').set('x-user-id', 'u_std').set('x-role', 'user');
       await request(app).get('/api/sliding-tier').set('x-user-id', 'u_std').set('x-role', 'user');
       const stdBlocked = await request(app).get('/api/sliding-tier').set('x-user-id', 'u_std').set('x-role', 'user');
       assert.equal(stdBlocked.status, 429);
 
-      // Admin user: limit 15
+      // admin user limit 15
       for (let i = 0; i < 5; i++) {
         const adminRes = await request(app).get('/api/sliding-tier').set('x-user-id', 'u_adm').set('x-role', 'admin');
         assert.equal(adminRes.status, 200);
@@ -172,7 +172,7 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
         (req, res) => res.status(200).json({ success: true })
       );
 
-      // Tenant 1 (Standard): capacity 3
+      // tenant 1 standard capacity 3
       for (let i = 1; i <= 3; i++) {
         const res = await request(app)
           .get('/api/compute')
@@ -188,7 +188,7 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
         .set('x-plan', 'standard');
       assert.equal(stdBlocked.status, 429);
 
-      // Tenant 2 (Enterprise): capacity 10
+      // tenant 2 enterprise capacity 10
       for (let i = 1; i <= 10; i++) {
         const res = await request(app)
           .get('/api/compute')
@@ -222,13 +222,13 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
         (req, res) => res.status(200).json({ success: true })
       );
 
-      // Basic client: capacity 2
+      // basic client capacity 2
       await request(app).get('/api/redis-tier').set('x-client-id', 'c_basic').set('x-tier', 'basic');
       await request(app).get('/api/redis-tier').set('x-client-id', 'c_basic').set('x-tier', 'basic');
       const blocked = await request(app).get('/api/redis-tier').set('x-client-id', 'c_basic').set('x-tier', 'basic');
       assert.equal(blocked.status, 429);
 
-      // VIP client: capacity 5
+      // vip client capacity 5
       for (let i = 0; i < 5; i++) {
         const vipRes = await request(app).get('/api/redis-tier').set('x-client-id', 'c_vip').set('x-tier', 'vip');
         assert.equal(vipRes.status, 200);
@@ -258,7 +258,6 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
 
       const apiKey = 'client_weighted_test';
 
-      // 1. Light operation costs 1 token: Remaining drops from 10 to 9
       const r1 = await request(app)
         .post('/api/data-ops')
         .set('x-api-key', apiKey)
@@ -266,7 +265,6 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
       assert.equal(r1.status, 200);
       assert.equal(r1.headers['ratelimit-remaining'], '9');
 
-      // 2. Heavy operation costs 5 tokens: Remaining drops from 9 to 4
       const r2 = await request(app)
         .post('/api/data-ops')
         .set('x-api-key', apiKey)
@@ -274,13 +272,12 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
       assert.equal(r2.status, 200);
       assert.equal(r2.headers['ratelimit-remaining'], '4');
 
-      // 3. Second heavy operation (costs 5 tokens) exceeds remaining 4 tokens -> Blocked 429!
       const r3 = await request(app)
         .post('/api/data-ops')
         .set('x-api-key', apiKey)
         .send({ operation: 'bulk-export' });
       assert.equal(r3.status, 429);
-      assert.equal(r3.headers['ratelimit-remaining'], '4'); // Remaining tokens preserved
+      assert.equal(r3.headers['ratelimit-remaining'], '4'); // remaining tokens preserved
     });
   });
 
@@ -290,13 +287,13 @@ describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
       app.get(
         '/api/invalid-limit',
         rateLimiter({
-          limit: () => -5, // Invalid limit returned dynamically
+          limit: () => -5, // invalid limit returned dynamically
           windowMs: 60_000
         }),
         (req, res) => res.json({ ok: true })
       );
 
-      // Express error handling middleware
+      // express error handling middleware
       app.use((err, req, res, next) => {
         res.status(500).json({ error: err.name, message: err.message });
       });

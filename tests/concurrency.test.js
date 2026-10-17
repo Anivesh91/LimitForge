@@ -5,15 +5,9 @@ import request from 'supertest';
 import { rateLimiter } from '../src/index.js';
 import { RedisStore } from '../src/stores/redisStore.js';
 
-/**
- * Simulates Redis's atomic Lua script execution guarantee:
- * Redis executes a Lua script atomically with respect to other Redis commands.
- * Commands from other clients cannot interleave with the script while it is executing.
- * Supports both Fixed Window string counters and Sliding Window Sorted Sets (ZSET).
- */
 function createAtomicRedisClient() {
   const strings = new Map();
-  const zsets = new Map(); // key -> Array<{ score: number, member: string }>
+  const zsets = new Map();
   let queue = Promise.resolve();
 
   return {
@@ -22,7 +16,6 @@ function createAtomicRedisClient() {
         queue = queue.then(async () => {
           const key = options.keys[0];
 
-          // 1. Sliding Window Lua Execution (4 arguments: now, windowMs, limit, member)
           if (options.arguments.length >= 4) {
             const now = Number(options.arguments[0]);
             const windowMs = Number(options.arguments[1]);
@@ -32,7 +25,7 @@ function createAtomicRedisClient() {
             const cutoff = now - windowMs;
             let entries = zsets.get(key) || [];
 
-            // Prune expired entries (score <= cutoff)
+            // prune expired entries score cutoff
             entries = entries.filter((e) => e.score > cutoff);
 
             const currentCount = entries.length;
@@ -50,7 +43,7 @@ function createAtomicRedisClient() {
             return;
           }
 
-          // 2. Fixed Window Lua Execution (1 argument: windowMs)
+          // fixed window lua execution 1 argument windowms
           const windowMs = Number(options.arguments[0]);
           const now = Date.now();
 
@@ -109,7 +102,7 @@ describe('SmartRate — Concurrency & Atomicity Verification', () => {
 
       const testIp = '10.200.0.1';
 
-      // Dispatch 50 concurrent requests in parallel
+      // dispatch 50 concurrent requests in parallel
       const requestPromises = Array.from({ length: TOTAL_REQUESTS }, () =>
         request(app)
           .get('/api/burst-test')
@@ -121,7 +114,6 @@ describe('SmartRate — Concurrency & Atomicity Verification', () => {
       const allowedResponses = responses.filter((r) => r.status === 200);
       const blockedResponses = responses.filter((r) => r.status === 429);
 
-      // Automated assertions verifying quota enforcement under concurrency
       assert.equal(allowedResponses.length, LIMIT, `Expected exactly ${LIMIT} allowed requests, got ${allowedResponses.length}`);
       assert.equal(blockedResponses.length, TOTAL_REQUESTS - LIMIT, `Expected exactly ${TOTAL_REQUESTS - LIMIT} blocked requests, got ${blockedResponses.length}`);
 
@@ -201,7 +193,6 @@ describe('SmartRate — Concurrency & Atomicity Verification', () => {
 
       const testIp = '10.200.0.99';
 
-      // Dispatch 50 concurrent requests in parallel against sliding window endpoint
       const requestPromises = Array.from({ length: TOTAL_REQUESTS }, () =>
         request(app)
           .get('/api/sliding-burst')
@@ -213,7 +204,6 @@ describe('SmartRate — Concurrency & Atomicity Verification', () => {
       const allowedResponses = responses.filter((r) => r.status === 200);
       const blockedResponses = responses.filter((r) => r.status === 429);
 
-      // Automated assertions verifying quota enforcement under concurrency
       assert.equal(allowedResponses.length, LIMIT, `Expected exactly ${LIMIT} allowed requests, got ${allowedResponses.length}`);
       assert.equal(blockedResponses.length, TOTAL_REQUESTS - LIMIT, `Expected exactly ${TOTAL_REQUESTS - LIMIT} blocked requests, got ${blockedResponses.length}`);
 
@@ -224,8 +214,6 @@ describe('SmartRate — Concurrency & Atomicity Verification', () => {
         assert.ok(Number(res.headers['retry-after']) > 0);
       }
 
-      // In Redis Sliding Window, rejected requests are NOT added to the ZSET,
-      // so the ZSET must contain exactly the 10 admitted requests
       assert.equal(
         redisClient.getZsetCount('smartrate:sliding-window:GET:/api/sliding-burst:10.200.0.99'),
         LIMIT,

@@ -5,12 +5,6 @@ import {
   DEFAULT_STORE_DURATION_BUCKETS
 } from './telemetryEvents.js';
 
-/**
- * Produces a deterministic string key from a labels object.
- *
- * @param {Object} labels
- * @returns {string} Sorted label string
- */
 function serializeLabelKey(labels = {}) {
   if (!labels || typeof labels !== 'object') return '';
   const entries = Object.entries(labels).filter(([k, v]) => v !== undefined && v !== null);
@@ -19,41 +13,20 @@ function serializeLabelKey(labels = {}) {
   return entries.map(([k, v]) => `${k}="${String(v)}"`).join(',');
 }
 
-/**
- * SmartRate — Internal MetricsCollector Engine
- *
- * Lightweight, zero-external-dependency in-memory aggregator tracking
- * rate limiting throughput, outcomes, store latency, errors, and resilience states.
- *
- * Designed with a strict cardinality boundary:
- * Never stores raw URLs, user IDs, or IPs as labels.
- */
 export class MetricsCollector {
-  /**
-   * @param {Object} [options]
-   * @param {number[]} [options.storeDurationBuckets] - Custom histogram buckets in seconds
-   * @param {number} [options.maxSeries=1000] - Hard cap on unique label series per metric
-   */
+  
   constructor(options = {}) {
     this.storeDurationBuckets = options.storeDurationBuckets || DEFAULT_STORE_DURATION_BUCKETS;
     this.maxSeries = typeof options.maxSeries === 'number' && options.maxSeries > 0 ? options.maxSeries : 1000;
 
-    // Internal storage: metricName -> Map(serializedLabelKey -> metricRecord)
     this.counters = new Map();
     this.gauges = new Map();
     this.histograms = new Map();
 
-    // Default gauge for circuit breaker state (0 = CLOSED)
+    // default gauge for circuit breaker state 0 closed
     this.setGauge(METRIC_NAMES.CIRCUIT_BREAKER_STATE, CIRCUIT_STATE_GAUGE_VALUES.CLOSED);
   }
 
-  /**
-   * Increments a monotonic counter.
-   *
-   * @param {string} name - Metric name
-   * @param {Object} [labels={}] - Dimension labels
-   * @param {number} [value=1] - Amount to increment
-   */
   incrementCounter(name, labels = {}, value = 1) {
     try {
       if (!name || typeof name !== 'string') return;
@@ -86,17 +59,9 @@ export class MetricsCollector {
       current.value += value;
       metricMap.set(labelKey, current);
     } catch {
-      // Telemetry failures must never disrupt application execution
     }
   }
 
-  /**
-   * Sets the instantaneous value of a gauge.
-   *
-   * @param {string} name - Metric name
-   * @param {number} value - Value to set
-   * @param {Object} [labels={}] - Dimension labels
-   */
   setGauge(name, value, labels = {}) {
     try {
       if (!name || typeof name !== 'string') return;
@@ -121,18 +86,10 @@ export class MetricsCollector {
         labels: { ...targetLabels }
       });
     } catch {
-      // Fail silent
+      // fail silent
     }
   }
 
-  /**
-   * Observes a latency observation in seconds in a cumulative histogram.
-   *
-   * @param {string} name - Metric name
-   * @param {number} durationSeconds - Observed duration in seconds
-   * @param {Object} [labels={}] - Dimension labels
-   * @param {number[]} [customBuckets] - Optional custom bucket bounds
-   */
   observeHistogram(name, durationSeconds, labels = {}, customBuckets = this.storeDurationBuckets) {
     try {
       if (!name || typeof name !== 'string') return;
@@ -168,27 +125,16 @@ export class MetricsCollector {
       record.sum += durationSeconds;
       record.count += 1;
 
-      // Cumulative bucket counting: increment every bucket bound >= duration
       for (const bucket of record.buckets) {
         if (durationSeconds <= bucket.le) {
           bucket.count += 1;
         }
       }
     } catch {
-      // Fail silent
+      // fail silent
     }
   }
 
-  /**
-   * Convenience: Records a rate limiter request evaluation.
-   *
-   * @param {Object} params
-   * @param {'allowed'|'blocked'} params.outcome
-   * @param {string} params.algorithm
-   * @param {string} params.method
-   * @param {string} params.normalized_route
-   * @param {string} params.store
-   */
   recordRequest({ outcome, algorithm, method, normalized_route, store }) {
     this.incrementCounter(METRIC_NAMES.REQUESTS_TOTAL, {
       outcome: outcome || 'unknown',
@@ -199,13 +145,6 @@ export class MetricsCollector {
     });
   }
 
-  /**
-   * Convenience: Records a store error or timeout.
-   *
-   * @param {Object} params
-   * @param {string} params.store
-   * @param {string} params.error_type
-   */
   recordStoreError({ store, error_type }) {
     this.incrementCounter(METRIC_NAMES.STORE_ERRORS_TOTAL, {
       store: store || 'unknown',
@@ -213,24 +152,12 @@ export class MetricsCollector {
     });
   }
 
-  /**
-   * Convenience: Records a degraded fallback request.
-   *
-   * @param {Object} params
-   * @param {string} params.reason
-   */
   recordDegradedRequest({ reason }) {
     this.incrementCounter(METRIC_NAMES.DEGRADED_REQUESTS_TOTAL, {
       reason: reason || 'fallback'
     });
   }
 
-  /**
-   * Convenience: Updates the circuit breaker state gauge.
-   *
-   * @param {'CLOSED'|'HALF_OPEN'|'OPEN'|string} state
-   * @param {Object} [labels={}] - Optional breaker labels (e.g. { breaker: 'auth' })
-   */
   recordCircuitBreakerState(state, labels = {}) {
     const numericValue =
       CIRCUIT_STATE_GAUGE_VALUES[state] !== undefined
@@ -240,21 +167,10 @@ export class MetricsCollector {
     this.setGauge(METRIC_NAMES.CIRCUIT_BREAKER_STATE, numericValue, labels);
   }
 
-  /**
-   * Convenience: Records store operation duration in seconds.
-   *
-   * @param {number} durationSeconds - Latency in seconds
-   * @param {Object} [labels={}]
-   */
   recordStoreDuration(durationSeconds, labels = {}) {
     this.observeHistogram(METRIC_NAMES.STORE_DURATION_SECONDS, durationSeconds, labels);
   }
 
-  /**
-   * Returns a structured snapshot of all recorded metrics.
-   *
-   * @returns {Object} Metric data snapshot
-   */
   getSnapshot() {
     const snapshot = {
       counters: {},
@@ -291,9 +207,6 @@ export class MetricsCollector {
     return snapshot;
   }
 
-  /**
-   * Resets all internal metric values.
-   */
   reset() {
     this.counters.clear();
     this.gauges.clear();
@@ -302,5 +215,5 @@ export class MetricsCollector {
   }
 }
 
-// Default singleton collector instance
+// default singleton collector instance
 export const defaultMetricsCollector = new MetricsCollector();

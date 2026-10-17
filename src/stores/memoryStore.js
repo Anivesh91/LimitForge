@@ -1,17 +1,6 @@
-/**
- * SmartRate — MemoryStore
- *
- * In-memory rate-limiting store backed by a JavaScript Map.
- * Supports both Fixed Window and Rolling Sliding Window algorithms.
- * Encapsulates state tracking, rolling window expiration, and periodic stale-entry cleanup.
- *
- * Implements the SmartRate Store contract: consume({ key, limit, windowMs, algorithm }).
- */
+
 export class MemoryStore {
-  /**
-   * @param {Object} [options]
-   * @param {number} [options.cleanupIntervalMs=60000] Interval in ms to run stale entry cleanup
-   */
+  
   constructor(options = {}) {
     this.store = new Map();
     this.cleanupIntervalMs = options.cleanupIntervalMs || 60_000;
@@ -19,18 +8,6 @@ export class MemoryStore {
     this._ensureCleanupTimer();
   }
 
-  /**
-   * Consumes a request against the rate-limit quota for a given key.
-   * Dispatches to algorithm-specific storage strategies.
-   *
-   * @param {Object} params
-   * @param {string} params.key - Unique rate-limit key (e.g. smartrate:fixed-window:GET:/api:127.0.0.1)
-   * @param {number} params.limit - Maximum allowed requests in the window
-   * @param {number} params.windowMs - Window duration in milliseconds
-   * @param {'fixed-window'|'sliding-window'} [params.algorithm='fixed-window'] - Selected algorithm
-   * @param {number} [params.now=Date.now()] - Timestamp hook for deterministic testing
-   * @returns {{ allowed: boolean, count: number, remaining: number, reset: number, retryAfter?: number }}
-   */
   consume({
     key,
     limit,
@@ -60,10 +37,6 @@ export class MemoryStore {
     return this._consumeFixedWindow({ key, limit, windowMs, now });
   }
 
-  /**
-   * Fixed Window strategy: Evaluates requests within fixed time buckets.
-   * @private
-   */
   _consumeFixedWindow({ key, limit, windowMs, now }) {
     const record = this.store.get(key);
 
@@ -115,11 +88,6 @@ export class MemoryStore {
     };
   }
 
-  /**
-   * Sliding Window strategy: Evaluates requests within a rolling interval (now - windowMs, now].
-   * Maintains a queue of request timestamps and prunes timestamps <= (now - windowMs).
-   * @private
-   */
   _consumeSlidingWindow({ key, limit, windowMs, now }) {
     const cutoff = now - windowMs;
 
@@ -131,7 +99,6 @@ export class MemoryStore {
       record.windowMs = windowMs;
     }
 
-    // Prune expired timestamps falling outside active interval (cutoff < t <= now)
     while (record.timestamps.length > 0 && record.timestamps[0] <= cutoff) {
       record.timestamps.shift();
     }
@@ -143,7 +110,6 @@ export class MemoryStore {
       const newCount = currentCount + 1;
       const remaining = Math.max(0, limit - newCount);
 
-      // Oldest timestamp in window determines seconds until initial slot opens
       const oldestTimestamp = record.timestamps[0];
       const reset = Math.max(1, Math.ceil((oldestTimestamp + windowMs - now) / 1000));
 
@@ -155,7 +121,6 @@ export class MemoryStore {
       };
     }
 
-    // Quota exhausted: determine seconds until oldest timestamp exits the window
     const oldestTimestamp = record.timestamps[0];
     const reset = Math.max(1, Math.ceil((oldestTimestamp + windowMs - now) / 1000));
 
@@ -168,19 +133,12 @@ export class MemoryStore {
     };
   }
 
-  /**
-   * Token Bucket strategy: Maintains a lightweight bucket with capacity and refillRate.
-   * Refills tokens continuously: newTokens = min(capacity, previousTokens + elapsed * refillRate).
-   * Memory footprint is strictly O(1) per key (stores only tokens float and lastRefillTimestamp).
-   *
-   * @private
-   */
   _consumeTokenBucket({ key, capacity, refillRate, refillIntervalMs = 1000, cost = 1, now }) {
     const refillPerMs = refillRate / refillIntervalMs;
     let record = this.store.get(key);
 
     if (!record || record.algorithm !== 'token-bucket') {
-      // First request: bucket starts at full capacity
+      // first request bucket starts at full capacity
       const initialTokens = capacity;
       record = {
         algorithm: 'token-bucket',
@@ -192,12 +150,10 @@ export class MemoryStore {
       };
       this.store.set(key, record);
     } else {
-      // Bucket exists: update capacity, refillRate, and refillIntervalMs in case configuration dynamically changed
       record.capacity = capacity;
       record.refillRate = refillRate;
       record.refillIntervalMs = refillIntervalMs;
 
-      // Refill tokens based on continuous time elapsed: elapsedMs * (refillRate / refillIntervalMs)
       const elapsedMs = Math.max(0, now - record.lastRefillTimestamp);
       if (elapsedMs > 0) {
         const tokensToAdd = elapsedMs * refillPerMs;
@@ -220,7 +176,6 @@ export class MemoryStore {
       };
     }
 
-    // Token deficit: smart Retry-After calculates time until enough tokens exist for this request
     const neededTokens = cost - record.tokens;
     const waitMs = neededTokens / refillPerMs;
     const retryAfter = Math.max(1, Math.ceil(waitMs / 1000));
@@ -234,16 +189,6 @@ export class MemoryStore {
     };
   }
 
-  /**
-   * Scans the Map and removes records whose windows have elapsed.
-   * For Sliding Window: prunes expired timestamps and deletes empty keys.
-   * For Fixed Window: deletes keys whose fixed bucket has elapsed.
-   * For Token Bucket: deletes keys that have refilled to full and remained idle.
-   * Returns the count of removed stale records.
-   *
-   * @param {number} [now=Date.now()]
-   * @returns {number}
-   */
   cleanupExpiredRecords(now = Date.now()) {
     let removed = 0;
 
@@ -282,16 +227,12 @@ export class MemoryStore {
         this.cleanupExpiredRecords();
       }, this.cleanupIntervalMs);
 
-      // unref() ensures background timer does not keep Node.js event loop alive
       if (typeof this.cleanupInterval.unref === 'function') {
         this.cleanupInterval.unref();
       }
     }
   }
 
-  /**
-   * Stops background cleanup timer and clears in-memory state.
-   */
   destroy() {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);

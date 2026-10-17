@@ -13,7 +13,6 @@ const PORT = Number(process.env.DEMO_PORT || 3004);
 
 app.use(express.json());
 
-// Simulated Distributed Primary Store (mimics Redis with fault injection)
 class SimulatedRedisStore {
   constructor() {
     this.healthy = true;
@@ -35,7 +34,6 @@ class SimulatedRedisStore {
     this.calls++;
 
     if (this.timeoutMode) {
-      // Simulate extreme network latency triggering timeout guard
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
 
@@ -77,7 +75,6 @@ class SimulatedRedisStore {
 const simulatedRedis = new SimulatedRedisStore();
 const fallbackStore = new MemoryStore();
 
-// Configure ResilientStore with 100ms timeout guard and circuit breaker
 const resilientStore = new ResilientStore({
   primaryStore: simulatedRedis,
   fallbackStore,
@@ -86,7 +83,7 @@ const resilientStore = new ResilientStore({
   resetTimeoutMs: 1200
 });
 
-// Event listeners for observability
+// event listeners for observability
 resilientStore.on('stateChange', (evt) => {
   console.log(`  ⚡ [Breaker Event] State changed: ${evt.from} -> ${evt.to} (reason: ${evt.reason || 'N/A'})`);
 });
@@ -190,9 +187,7 @@ async function makeRequest(path) {
 async function runSimulation() {
   const assertions = [];
 
-  // -------------------------------------------------------------
-  // Stage 1: Healthy Primary Redis Operations
-  // -------------------------------------------------------------
+  // stage 1 healthy primary redis operations
   console.log(`--- [Stage 1: Healthy Primary Redis Operations (CLOSED)] ---`);
   simulatedRedis.setHealthy(true);
 
@@ -205,13 +200,9 @@ async function runSimulation() {
     pass: resHealthy.status === 200 && resHealthy.headers['ratelimit-degraded'] === undefined
   });
 
-  // -------------------------------------------------------------
-  // Stage 2: Injecting Store Outage (Simulating Redis Outage)
-  // -------------------------------------------------------------
   console.log(`\n--- [Stage 2: Injecting Store Outage (Redis ECONNREFUSED)] ---`);
   simulatedRedis.setHealthy(false);
 
-  // Send 3 requests to accumulate failures and trip the breaker
   for (let i = 1; i <= 3; i++) {
     const resFail = await makeRequest('/api/resilient');
     console.log(
@@ -223,9 +214,6 @@ async function runSimulation() {
     });
   }
 
-  // -------------------------------------------------------------
-  // Stage 3: Circuit Breaker OPEN (Zero Primary Hammering)
-  // -------------------------------------------------------------
   console.log(`\n--- [Stage 3: Circuit Breaker OPEN (Primary Network Calls Bypassed)] ---`);
   const initialCalls = simulatedRedis.calls;
 
@@ -243,13 +231,8 @@ async function runSimulation() {
           callsDuringOpen === 0
   });
 
-  // -------------------------------------------------------------
-  // Stage 4: Safe Local Rate Limit Enforcement (Quota Exhaustion)
-  // -------------------------------------------------------------
   console.log(`\n--- [Stage 4: Safe Local Rate Limit Enforcement (Exhausting Memory Limit)] ---`);
-  // Note: During fallback, fallback MemoryStore tracks quota locally.
-  // We've used 1 token on fallbackStore so far in this window for this IP.
-  // Consume remaining tokens on fallback until blocked.
+  // consume remaining tokens on fallback until blocked
   let blockedRes = null;
   for (let i = 0; i < 5; i++) {
     const r = await makeRequest('/api/resilient');
@@ -267,9 +250,6 @@ async function runSimulation() {
     pass: blockedRes !== null && blockedRes.status === 429 && blockedRes.headers['ratelimit-degraded'] === 'true'
   });
 
-  // -------------------------------------------------------------
-  // Stage 5: Redis Healed, Cooldown Elapsed, Seamless Canary Recovery
-  // -------------------------------------------------------------
   console.log(`\n--- [Stage 5: Healing Redis & Waiting 1.3s for Cooldown Expiry] ---`);
   simulatedRedis.setHealthy(true);
   await new Promise((resolve) => setTimeout(resolve, 1300));
@@ -287,9 +267,7 @@ async function runSimulation() {
           resRecovered.headers['ratelimit-degraded'] === undefined
   });
 
-  // -------------------------------------------------------------
-  // Verification Summary
-  // -------------------------------------------------------------
+  // verification summary
   console.log(`\n=============================================================`);
   let allPassed = true;
   for (const a of assertions) {

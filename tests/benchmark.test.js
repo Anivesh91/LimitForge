@@ -21,27 +21,26 @@ describe('SmartRate v7 — Day 4: Performance Benchmarking & Observability Demo'
     });
 
     it('calculates correct statistical percentiles and preserves order invariants', () => {
-      // 100 samples from 1000ns (1µs) to 100000ns (100µs)
+      // 100 samples from 1000ns 1 s to 100000ns 100 s
       const samplesNs = Array.from({ length: 100 }, (_, i) => BigInt((i + 1) * 1000));
 
       const stats = calculatePercentiles(samplesNs);
 
       assert.equal(stats.count, 100);
-      assert.equal(stats.minUs, 1); // 1000ns = 1µs
-      assert.equal(stats.maxUs, 100); // 100000ns = 100µs
-      assert.equal(stats.p50Us, 50.5); // Linearly interpolated 50th percentile
+      assert.equal(stats.minUs, 1); // 1000ns 1 s
+      assert.equal(stats.maxUs, 100); // 100000ns 100 s
+      assert.equal(stats.p50Us, 50.5); // linearly interpolated 50th percentile
       assert.equal(stats.p90Us, 90.1);
       assert.equal(stats.p95Us, 95.05);
       assert.equal(stats.p99Us, 99.01);
 
-      // Verify mathematical percentile invariant: min <= p50 <= p90 <= p95 <= p99 <= max
       assert.ok(stats.minUs <= stats.p50Us);
       assert.ok(stats.p50Us <= stats.p90Us);
       assert.ok(stats.p90Us <= stats.p95Us);
       assert.ok(stats.p95Us <= stats.p99Us);
       assert.ok(stats.p99Us <= stats.maxUs);
 
-      // Verify millisecond unit conversions
+      // verify millisecond unit conversions
       assert.equal(stats.minMs, 0.001);
       assert.equal(stats.maxMs, 0.1);
       assert.equal(stats.p50Ms, 0.0505);
@@ -71,7 +70,7 @@ describe('SmartRate v7 — Day 4: Performance Benchmarking & Observability Demo'
         assert.ok(s.overheadP50Us >= 0);
       }
 
-      // First scenario should be baseline with 0 overhead
+      // first scenario should be baseline with 0 overhead
       assert.ok(report.scenarios[0].scenario.includes('No-op Middleware'));
       assert.equal(report.scenarios[0].overheadP50Us, 0);
     });
@@ -94,7 +93,7 @@ describe('SmartRate v7 — Day 4: Performance Benchmarking & Observability Demo'
       assert.equal(res1.status, 200);
       assert.equal(res1.body.success, true);
 
-      // Scrape /metrics to confirm telemetry is active
+      // scrape metrics to confirm telemetry is active
       const metricsRes = await request(demoApp).get('/metrics');
       assert.equal(metricsRes.status, 200);
       assert.ok(metricsRes.headers['content-type'].includes('version=0.0.4'));

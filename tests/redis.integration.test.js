@@ -5,10 +5,6 @@ import request from 'supertest';
 import { rateLimiter } from '../src/index.js';
 import { RedisStore } from '../src/stores/redisStore.js';
 
-/**
- * Creates an in-memory Redis test client simulating INCR, PEXPIRE, and PTTL.
- * Maintains realistic millisecond TTL expiration semantics.
- */
 function createSimulatedRedisClient() {
   const data = new Map();
 
@@ -63,24 +59,24 @@ describe('SmartRate v2 — Redis Fixed Window & Expiration Tests', () => {
 
     const testIp = '10.0.0.1';
 
-    // Request 1: Count = 1, Remaining = 2
+    // request 1 count 1 remaining 2
     const res1 = await request(app).get('/api/redis-test').set('X-Forwarded-For', testIp);
     assert.equal(res1.status, 200);
     assert.equal(res1.headers['ratelimit-limit'], '3');
     assert.equal(res1.headers['ratelimit-remaining'], '2');
     assert.ok(Number(res1.headers['ratelimit-reset']) > 0);
 
-    // Request 2: Count = 2, Remaining = 1
+    // request 2 count 2 remaining 1
     const res2 = await request(app).get('/api/redis-test').set('X-Forwarded-For', testIp);
     assert.equal(res2.status, 200);
     assert.equal(res2.headers['ratelimit-remaining'], '1');
 
-    // Request 3: Count = 3, Remaining = 0 (exact limit reached)
+    // request 3 count 3 remaining 0 exact limit reached
     const res3 = await request(app).get('/api/redis-test').set('X-Forwarded-For', testIp);
     assert.equal(res3.status, 200);
     assert.equal(res3.headers['ratelimit-remaining'], '0');
 
-    // Request 4: N+1 -> Blocked with HTTP 429
+    // request 4 n 1 blocked with http 429
     const res4 = await request(app).get('/api/redis-test').set('X-Forwarded-For', testIp);
     assert.equal(res4.status, 429);
     assert.equal(res4.body.success, false);
@@ -102,18 +98,17 @@ describe('SmartRate v2 — Redis Fixed Window & Expiration Tests', () => {
 
     const testIp = '10.0.0.2';
 
-    // Request 1: Allowed
+    // request 1 allowed
     const res1 = await request(app).get('/api/redis-expiry').set('X-Forwarded-For', testIp);
     assert.equal(res1.status, 200);
 
-    // Request 2: Blocked within active window
+    // request 2 blocked within active window
     const res2 = await request(app).get('/api/redis-expiry').set('X-Forwarded-For', testIp);
     assert.equal(res2.status, 429);
 
-    // Wait 60ms for Redis TTL to expire
+    // wait 60ms for redis ttl to expire
     await new Promise((resolve) => setTimeout(resolve, 60));
 
-    // Request 3: After TTL expiration, key was deleted by Redis -> Fresh window starts!
     const res3 = await request(app).get('/api/redis-expiry').set('X-Forwarded-For', testIp);
     assert.equal(res3.status, 200);
     assert.equal(res3.headers['ratelimit-remaining'], '0');
@@ -130,14 +125,14 @@ describe('SmartRate v2 — Redis Fixed Window & Expiration Tests', () => {
 
     const testIp = '10.0.0.3';
 
-    // Exhaust GET quota
+    // exhaust get quota
     const getRes = await request(app).get('/api/resource').set('X-Forwarded-For', testIp);
     assert.equal(getRes.status, 200);
 
     const getBlocked = await request(app).get('/api/resource').set('X-Forwarded-For', testIp);
     assert.equal(getBlocked.status, 429);
 
-    // POST on same route must be unaffected
+    // post on same route must be unaffected
     const postRes = await request(app).post('/api/resource').set('X-Forwarded-For', testIp);
     assert.equal(postRes.status, 200);
   });
