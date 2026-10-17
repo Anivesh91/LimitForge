@@ -14,18 +14,8 @@ const SLIDING_WINDOW_LUA = fs.readFileSync(SLIDING_SCRIPT_PATH, 'utf-8');
 const TOKEN_BUCKET_SCRIPT_PATH = path.join(__dirname, '../scripts/tokenBucket.lua');
 const TOKEN_BUCKET_LUA = fs.readFileSync(TOKEN_BUCKET_SCRIPT_PATH, 'utf-8');
 
-/**
- * SmartRate — RedisStore
- *
- * Distributed rate-limiting store backed by Redis.
- * Supports Fixed Window, Rolling Sliding Window, and Token Bucket algorithms.
- * Executes state transitions atomically via embedded Lua scripts.
- */
 export class RedisStore {
-  /**
-   * @param {Object} options
-   * @param {Object} options.client - Connected Redis client instance (e.g. from createClient())
-   */
+  
   constructor(options) {
     if (!options || typeof options !== 'object') {
       throw new TypeError('SmartRate: RedisStore options must be an object.');
@@ -49,14 +39,6 @@ export class RedisStore {
     this.tokenBucketScript = TOKEN_BUCKET_LUA;
   }
 
-  /**
-   * Executes the atomic Fixed Window Lua script in Redis.
-   *
-   * @param {string} key - Rate-limit key
-   * @param {number} windowMs - Window duration in milliseconds
-   * @returns {Promise<[number, number]>} [count, remainingTtlMs]
-   * @private
-   */
   async _evalFixedScript(key, windowMs) {
     if (typeof this.client.eval === 'function') {
       return this.client.eval(this.fixedScript, {
@@ -68,17 +50,6 @@ export class RedisStore {
     return this.client.sendCommand(['EVAL', this.fixedScript, '1', key, String(windowMs)]);
   }
 
-  /**
-   * Executes the atomic Sliding Window Lua script in Redis.
-   *
-   * @param {string} key - Rate-limit key
-   * @param {number} now - Timestamp in milliseconds
-   * @param {number} windowMs - Window duration in milliseconds
-   * @param {number} limit - Maximum allowed requests in window
-   * @param {string} member - Collision-resistant unique member identifier
-   * @returns {Promise<[number, number, number]>} [allowed (1 or 0), count, oldestScore]
-   * @private
-   */
   async _evalSlidingScript(key, now, windowMs, limit, member) {
     if (typeof this.client.eval === 'function') {
       return this.client.eval(this.slidingScript, {
@@ -99,18 +70,6 @@ export class RedisStore {
     ]);
   }
 
-  /**
-   * Executes the atomic Token Bucket Lua script in Redis.
-   *
-   * @param {string} key - Rate-limit key
-   * @param {number} now - Timestamp in milliseconds
-   * @param {number} capacity - Maximum bucket capacity
-   * @param {number} refillRate - Refill rate
-   * @param {number} [refillIntervalMs=1000] - Refill interval duration in milliseconds
-   * @param {number} [cost=1] - Tokens to consume
-   * @returns {Promise<[number, number, number, number]>} [allowed (1 or 0), remaining, reset, retryAfter]
-   * @private
-   */
   async _evalTokenBucketScript(key, now, capacity, refillRate, refillIntervalMs = 1000, cost = 1) {
     if (typeof this.client.eval === 'function') {
       return this.client.eval(this.tokenBucketScript, {
@@ -132,21 +91,6 @@ export class RedisStore {
     ]);
   }
 
-  /**
-   * Consumes a request against the rate-limit quota in Redis atomically via Lua.
-   *
-   * @param {Object} params
-   * @param {string} params.key - Unique rate-limit key
-   * @param {number} [params.limit] - Maximum allowed requests in window
-   * @param {number} [params.windowMs] - Window duration in milliseconds
-   * @param {'fixed-window'|'sliding-window'|'token-bucket'} [params.algorithm='fixed-window'] - Selected algorithm
-   * @param {number} [params.capacity] - Token bucket capacity
-   * @param {number} [params.refillRate] - Token bucket refill rate
-   * @param {number} [params.refillIntervalMs=1000] - Refill interval in milliseconds
-   * @param {number} [params.cost=1] - Request cost in tokens
-   * @param {number} [params.now=Date.now()] - Timestamp hook for deterministic testing
-   * @returns {Promise<{ allowed: boolean, count: number, remaining: number, reset: number, retryAfter?: number }>}
-   */
   async consume({
     key,
     limit,

@@ -56,7 +56,7 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
       await assert.rejects(async () => cb.execute(() => Promise.reject(new Error('Flake 1'))));
       assert.equal(cb.getStats().consecutiveFailures, 1);
 
-      // Successful call resets failures
+      // successful call resets failures
       const res = await cb.execute(() => Promise.resolve('recovered'));
       assert.equal(res, 'recovered');
       assert.equal(cb.getStats().consecutiveFailures, 0);
@@ -79,11 +79,11 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
         }
       });
 
-      // Failure 1
+      // failure 1
       await assert.rejects(async () => cb.execute(() => Promise.reject(new Error('Error 1'))));
       assert.equal(cb.getState(), CIRCUIT_STATE.CLOSED);
 
-      // Failure 2 -> TRIPS
+      // failure 2 trips
       await assert.rejects(async () => cb.execute(() => Promise.reject(new Error('Error 2'))));
       assert.equal(cb.getState(), CIRCUIT_STATE.OPEN);
       assert.equal(cb.isOpen(), true);
@@ -96,11 +96,11 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
       let calls = 0;
       const fn = () => { calls++; return Promise.resolve('ok'); };
 
-      // Trip the breaker
+      // trip the breaker
       await assert.rejects(async () => cb.execute(() => Promise.reject(new Error('Outage'))));
       assert.equal(cb.isOpen(), true);
 
-      // Subsequent call while OPEN
+      // subsequent call while open
       await assert.rejects(
         async () => cb.execute(fn),
         (err) => {
@@ -111,7 +111,7 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
         }
       );
 
-      // The target function must NOT have been called
+      // the target function must not have been called
       assert.equal(calls, 0);
     });
 
@@ -123,16 +123,16 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
       cb.on('probe', () => { probeEmitted = true; });
       cb.on('close', () => { closeEmitted = true; });
 
-      // Trip
+      // trip
       await assert.rejects(async () => cb.execute(() => Promise.reject(new Error('Fail'))));
       assert.equal(cb.isOpen(), true);
 
-      // Wait for reset timeout
+      // wait for reset timeout
       await new Promise((r) => setTimeout(r, 40));
 
       assert.equal(cb.isHalfOpen(), true);
 
-      // Canary probe succeeds
+      // canary probe succeeds
       const result = await cb.execute(() => Promise.resolve('probe-ok'));
       assert.equal(result, 'probe-ok');
       assert.equal(cb.isClosed(), true);
@@ -144,38 +144,37 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
     it('trips back to OPEN if canary probe fails in HALF_OPEN state', async () => {
       const cb = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 30 });
 
-      // Trip
+      // trip
       await assert.rejects(async () => cb.execute(() => Promise.reject(new Error('Fail 1'))));
       assert.equal(cb.isOpen(), true);
 
-      // Wait for HALF_OPEN
+      // wait for half open
       await new Promise((r) => setTimeout(r, 40));
       assert.equal(cb.isHalfOpen(), true);
 
-      // Canary probe fails
+      // canary probe fails
       await assert.rejects(async () => cb.execute(() => Promise.reject(new Error('Probe failed'))));
 
-      // Should be OPEN again
+      // should be open again
       assert.equal(cb.isOpen(), true);
     });
 
     it('blocks concurrent executions during in-flight canary probe in HALF_OPEN', async () => {
       const cb = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 30 });
 
-      // Trip
+      // trip
       await assert.rejects(async () => cb.execute(() => Promise.reject(new Error('Fail 1'))));
 
-      // Wait for HALF_OPEN
+      // wait for half open
       await new Promise((r) => setTimeout(r, 40));
       assert.equal(cb.isHalfOpen(), true);
 
-      // Launch slow probe
+      // launch slow probe
       const slowProbe = cb.execute(async () => {
         await new Promise((r) => setTimeout(r, 50));
         return 'probe-success';
       });
 
-      // Immediate concurrent call while probe is in-flight must be rejected with CircuitBreakerOpenError
       await assert.rejects(
         async () => cb.execute(() => Promise.resolve('should-not-run')),
         (err) => {
@@ -315,7 +314,6 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
         res.json({ ok: true, isDegraded: req.rateLimit?.degraded });
       });
 
-      // First 3 requests hit the store and fail open (trips circuit on 3rd failure)
       const res1 = await request(app).get('/shielded-resource');
       const res2 = await request(app).get('/shielded-resource');
       const res3 = await request(app).get('/shielded-resource');
@@ -326,7 +324,7 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
       assert.equal(storeConsumeCalls, 3);
       assert.equal(limiter.circuitBreaker.isOpen(), true);
 
-      // Requests 4, 5, 6 arrive while circuit is OPEN
+      // requests 4 5 6 arrive while circuit is open
       const res4 = await request(app).get('/shielded-resource');
       const res5 = await request(app).get('/shielded-resource');
       const res6 = await request(app).get('/shielded-resource');
@@ -335,7 +333,6 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
       assert.equal(res5.status, 200);
       assert.equal(res6.status, 200);
 
-      // Crucial: store.consume MUST NOT have been called for requests 4, 5, 6!
       assert.equal(storeConsumeCalls, 3);
       assert.equal(res4.headers['ratelimit-degraded'], 'true');
     });
@@ -365,18 +362,17 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
       assert.equal(r1.status, 503);
       assert.equal(storeConsumeCalls, 1);
 
-      // 2nd request fails -> TRIPS to OPEN
+      // 2nd request fails trips to open
       const r2 = await request(app).get('/fail-closed-circuit');
       assert.equal(r2.status, 503);
       assert.equal(storeConsumeCalls, 2);
       assert.equal(limiter.circuitBreaker.isOpen(), true);
 
-      // 3rd request arrives with OPEN circuit: fast-fails with 503 without touching store
       const r3 = await request(app).get('/fail-closed-circuit');
       assert.equal(r3.status, 503);
       assert.equal(r3.headers['ratelimit-degraded'], 'true');
       assert.equal(r3.headers['retry-after'], '5');
-      assert.equal(storeConsumeCalls, 2); // Still 2! Not touched
+      assert.equal(storeConsumeCalls, 2); // still 2 not touched
     });
 
     it('probes store recovery after resetTimeoutMs and resumes normal limiting on success', async () => {
@@ -403,25 +399,24 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
 
       app.get('/recovery-route', limiter, (req, res) => res.json({ ok: true }));
 
-      // Trip circuit
+      // trip circuit
       await request(app).get('/recovery-route');
       await request(app).get('/recovery-route');
       assert.equal(limiter.circuitBreaker.isOpen(), true);
       assert.equal(consumeCalls, 2);
 
-      // Store recovers
+      // store recovers
       isHealthy = true;
 
-      // Wait for resetTimeoutMs
+      // wait for resettimeoutms
       await new Promise((r) => setTimeout(r, 60));
       assert.equal(limiter.circuitBreaker.isHalfOpen(), true);
 
-      // Canary probe request
+      // canary probe request
       const probeRes = await request(app).get('/recovery-route');
       assert.equal(probeRes.status, 200);
       assert.equal(consumeCalls, 3);
       assert.equal(limiter.circuitBreaker.isClosed(), true);
-      // Degraded header should NO LONGER be set on healthy recovery!
       assert.equal(probeRes.headers['ratelimit-degraded'], undefined);
       assert.equal(probeRes.headers['ratelimit-limit'], '10');
       assert.equal(probeRes.headers['ratelimit-remaining'], '9');
@@ -457,17 +452,16 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
       app.get('/route-a', routeALimiter, (req, res) => res.json({ route: 'A' }));
       app.get('/route-b', routeBLimiter, (req, res) => res.json({ route: 'B' }));
 
-      // 2 failures on route A trips the shared breaker
+      // 2 failures on route a trips the shared breaker
       await request(app).get('/route-a');
       await request(app).get('/route-a');
       assert.equal(sharedBreaker.isOpen(), true);
       assert.equal(brokenConsumeCount, 2);
 
-      // Route B immediately benefits from the shared tripped breaker and does NOT hit brokenStore
       const resB = await request(app).get('/route-b');
       assert.equal(resB.status, 200);
       assert.equal(resB.headers['ratelimit-degraded'], 'true');
-      assert.equal(brokenConsumeCount, 2); // Unchanged!
+      assert.equal(brokenConsumeCount, 2); // unchanged
     });
   });
 
@@ -482,24 +476,23 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
 
       app.get('/quota-test', limiter, (req, res) => res.json({ allowed: true }));
 
-      // Request 1: 200
+      // request 1 200
       const r1 = await request(app).get('/quota-test');
       assert.equal(r1.status, 200);
       assert.equal(limiter.circuitBreaker.getStats().consecutiveFailures, 0);
 
-      // Request 2: 200
+      // request 2 200
       const r2 = await request(app).get('/quota-test');
       assert.equal(r2.status, 200);
       assert.equal(limiter.circuitBreaker.getStats().consecutiveFailures, 0);
 
-      // Request 3: 429 Too Many Requests
+      // request 3 429 too many requests
       const r3 = await request(app).get('/quota-test');
       assert.equal(r3.status, 429);
-      // Quota exhaustion is expected rate-limiting behavior, NOT a store/infra failure!
       assert.equal(limiter.circuitBreaker.getStats().consecutiveFailures, 0);
       assert.equal(limiter.circuitBreaker.isClosed(), true);
 
-      // Request 4: 429 Too Many Requests
+      // request 4 429 too many requests
       const r4 = await request(app).get('/quota-test');
       assert.equal(r4.status, 429);
       assert.equal(limiter.circuitBreaker.getStats().consecutiveFailures, 0);
@@ -519,7 +512,6 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
       app.get('/bad-keygen', limiter, (req, res) => res.json({ ok: true }));
       app.use((err, req, res, next) => res.status(500).json({ error: err.message }));
 
-      // Multiple keygen crashes should bubble to next(err), but breaker must NOT trip
       await request(app).get('/bad-keygen');
       await request(app).get('/bad-keygen');
       await request(app).get('/bad-keygen');
@@ -550,10 +542,10 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
     it('supports custom isFailure predicate to filter counted errors', async () => {
       const cb = new CircuitBreaker({
         failureThreshold: 2,
-        isFailure: (err) => err.name === 'StoreTimeoutError' // Only timeouts count as failures
+        isFailure: (err) => err.name === 'StoreTimeoutError' // only timeouts count as failures
       });
 
-      // Regular application error does not count
+      // regular application error does not count
       await assert.rejects(async () => cb.execute(() => Promise.reject(new Error('User logic error'))));
       assert.equal(cb.getStats().consecutiveFailures, 0);
       assert.equal(cb.isClosed(), true);

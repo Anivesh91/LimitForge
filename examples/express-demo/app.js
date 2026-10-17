@@ -5,8 +5,6 @@ const app = express();
 
 app.use(express.json());
 
-// In production behind reverse proxies (Nginx, ALB, Cloudflare, Render, Railway),
-// trust proxy is required to accurately resolve real client IPs via X-Forwarded-For.
 app.set('trust proxy', process.env.TRUST_PROXY || 1);
 
 app.use('/api', demoRoutes);

@@ -1,29 +1,12 @@
-/**
- * SmartRate — OpenTelemetry Bridge
- *
- * Optional, zero-dependency bridge for OpenTelemetry tracing.
- * Integrates cleanly with OpenTelemetry spans without making
- * @opentelemetry/api a mandatory runtime dependency.
- */
+
 
 export class OpenTelemetryBridge {
-  /**
-   * @param {Object} [options={}]
-   * @param {Object} [options.tracer] - Optional OpenTelemetry Tracer instance
-   * @param {Function} [options.getSpan] - Custom function (req) => span to extract the active span
-   */
+  
   constructor(options = {}) {
     this.tracer = options.tracer || null;
     this.getSpan = options.getSpan || null;
   }
 
-  /**
-   * Starts a child tracing span if a tracer is configured.
-   *
-   * @param {string} [name='smartrate.consume']
-   * @param {Object} [options={}]
-   * @returns {Object|null}
-   */
   startSpan(name = 'smartrate.consume', options = {}) {
     if (this.tracer && typeof this.tracer.startSpan === 'function') {
       try {
@@ -35,12 +18,6 @@ export class OpenTelemetryBridge {
     return null;
   }
 
-  /**
-   * Resolves the active OpenTelemetry span for a request.
-   *
-   * @param {Object} req - Express request
-   * @returns {Object|null}
-   */
   resolveSpan(req) {
     if (typeof this.getSpan === 'function') {
       try {
@@ -65,7 +42,6 @@ export class OpenTelemetryBridge {
       return req._smartRateSpan;
     }
 
-    // Try resolving ambient span via standard OpenTelemetry global symbol
     try {
       const api = globalThis[Symbol.for('opentelemetry.js.api.1')];
       if (api && api.trace && typeof api.trace.getActiveSpan === 'function') {
@@ -75,22 +51,12 @@ export class OpenTelemetryBridge {
         }
       }
     } catch {
-      // Safe boundary
+      // safe boundary
     }
 
     return null;
   }
 
-  /**
-   * Records rate limit evaluation outcome and attributes on the active span.
-   *
-   * @param {Object} params
-   * @param {Object} params.req
-   * @param {Object} params.result
-   * @param {string} params.algorithm
-   * @param {string} params.normalizedRoute
-   * @param {string} params.store
-   */
   recordEvaluation({ req, result, algorithm, normalizedRoute, store }) {
     try {
       const span = this.resolveSpan(req);
@@ -103,7 +69,7 @@ export class OpenTelemetryBridge {
       const routeStr = normalizedRoute || '/';
       const storeStr = store || 'unknown';
 
-      // SmartRate Attributes (backwards compatible)
+      // smartrate attributes backwards compatible
       span.setAttribute('smartrate.outcome', isAllowed ? 'allowed' : 'blocked');
       span.setAttribute('smartrate.algorithm', algoStr);
       span.setAttribute('smartrate.route', routeStr);
@@ -119,7 +85,6 @@ export class OpenTelemetryBridge {
         span.setAttribute('smartrate.degraded', true);
       }
 
-      // OpenTelemetry Semantic Conventions for Rate Limiting
       span.setAttribute('ratelimit.allowed', isAllowed);
       span.setAttribute('ratelimit.remaining', remainingVal);
       span.setAttribute('ratelimit.reset', resetVal);
@@ -141,18 +106,9 @@ export class OpenTelemetryBridge {
         }
       }
     } catch {
-      // Safe telemetry boundary: telemetry failure must never throw
     }
   }
 
-  /**
-   * Records store errors and exceptions on the active span.
-   *
-   * @param {Object} params
-   * @param {Object} params.req
-   * @param {Error} params.storeError
-   * @param {string} params.store
-   */
   recordStoreError({ req, storeError, store }) {
     try {
       const span = this.resolveSpan(req);
@@ -176,7 +132,7 @@ export class OpenTelemetryBridge {
         });
       }
     } catch {
-      // Safe telemetry boundary
+      // safe telemetry boundary
     }
   }
 }

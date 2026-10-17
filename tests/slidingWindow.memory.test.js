@@ -56,25 +56,25 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
       const windowMs = 60_000;
       const t0 = 100_000;
 
-      // Req 1 at t0 -> Allowed
+      // req 1 at t0 allowed
       const r1 = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 });
       assert.equal(r1.allowed, true);
       assert.equal(r1.count, 1);
       assert.equal(r1.remaining, 2);
 
-      // Req 2 at t0 + 1000 -> Allowed
+      // req 2 at t0 1000 allowed
       const r2 = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 1000 });
       assert.equal(r2.allowed, true);
       assert.equal(r2.count, 2);
       assert.equal(r2.remaining, 1);
 
-      // Req 3 at t0 + 2000 -> Allowed (Quota exhausted)
+      // req 3 at t0 2000 allowed quota exhausted
       const r3 = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 2000 });
       assert.equal(r3.allowed, true);
       assert.equal(r3.count, 3);
       assert.equal(r3.remaining, 0);
 
-      // Req 4 at t0 + 3000 -> Blocked
+      // req 4 at t0 3000 blocked
       const r4 = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 3000 });
       assert.equal(r4.allowed, false);
       assert.equal(r4.count, 3);
@@ -88,17 +88,15 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
       const limit = 2;
       const windowMs = 10_000;
 
-      // Request 1 at t = 10_000
+      // first request
       store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 10_000 });
-      // Request 2 at t = 15_000 (quota exhausted)
+      // second request
       store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 15_000 });
 
-      // At t = 20_000: cutoff = 20_000 - 10_000 = 10_000.
-      // The timestamp 10_000 is <= cutoff, so it is strictly outside the rolling window (10000, 20000].
-      // Exactly 1 slot opens up!
+      // slot opens up
       const resAt20s = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 20_000 });
       assert.equal(resAt20s.allowed, true);
-      assert.equal(resAt20s.count, 2); // 15_000 and 20_000 are in the active window
+      assert.equal(resAt20s.count, 2);
       assert.equal(resAt20s.remaining, 0);
     });
 
@@ -108,12 +106,10 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
       const limit = 1;
       const windowMs = 10_000;
 
-      // First request at t = 100_000
+      // first request
       store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 100_000 });
 
-      // Second request at t = 103_000 (blocked)
-      // Oldest request was at 100_000, expires at 110_000.
-      // Time until slot opens: 110_000 - 103_000 = 7000ms = 7 seconds.
+      // second request blocked
       const blocked = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 103_000 });
       assert.equal(blocked.allowed, false);
       assert.equal(blocked.reset, 7);
@@ -128,11 +124,9 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
 
       store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 1_000 });
 
-      // Sweeper runs at t = 5,000 (window still active): 0 evicted
       const activeEvicted = store.cleanupExpiredRecords(5_000);
       assert.equal(activeEvicted, 0);
 
-      // Sweeper runs at t = 12,000 (all timestamps expired): 1 record evicted
       const expiredEvicted = store.cleanupExpiredRecords(12_000);
       assert.equal(expiredEvicted, 1);
     });
@@ -147,38 +141,30 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
       const fixedKey = 'burst:fixed';
       const slidingKey = 'burst:sliding';
 
-      // 1. Initial request at t = 0 to establish the window
+      // initial request at t 0 to establish the window
       store.consume({ key: fixedKey, limit, windowMs, algorithm: 'fixed-window', now: 0 });
       store.consume({ key: slidingKey, limit, windowMs, algorithm: 'sliding-window', now: 0 });
 
-      // 2. Near end of the first window at t = 9,500, a request arrives (quota exhausted)
       const f2 = store.consume({ key: fixedKey, limit, windowMs, algorithm: 'fixed-window', now: 9_500 });
       const s2 = store.consume({ key: slidingKey, limit, windowMs, algorithm: 'sliding-window', now: 9_500 });
       assert.equal(f2.allowed, true);
       assert.equal(s2.allowed, true);
 
-      // 3. Just across the fixed window reset boundary at t = 10,001 (501ms after request 2):
-      // FIXED WINDOW: Window elapsed (10,001 >= 10,000) -> Resets and allows a fresh quota!
-      // Request at 10,001 is allowed (Req 3 in 501ms)
+      // request at 10 001 is allowed req 3 in 501ms
       const f3 = store.consume({ key: fixedKey, limit, windowMs, algorithm: 'fixed-window', now: 10_001 });
       assert.equal(f3.allowed, true, 'Fixed Window allows request right after boundary reset');
 
-      // Request at 10,002 is also allowed (Req 4 in 502ms! 3 requests in 502ms against limit 2!)
       const f4 = store.consume({ key: fixedKey, limit, windowMs, algorithm: 'fixed-window', now: 10_002 });
       assert.equal(f4.allowed, true, 'Fixed Window allows full quota burst right after reset');
 
-      // SLIDING WINDOW: Rolling interval at t = 10,001 is (1, 10001].
-      // Timestamp 0 is pruned, but timestamp 9,500 is STILL ACTIVE.
-      // Request at 10,001 takes the 2nd slot (allowed):
+      // request at 10 001 takes the 2nd slot allowed
       const s3 = store.consume({ key: slidingKey, limit, windowMs, algorithm: 'sliding-window', now: 10_001 });
       assert.equal(s3.allowed, true);
 
-      // Request at 10,002: Active timestamps are [9500, 10001] -> Quota = 2 is FULL!
-      // Sliding window strictly BLOCKS request 4, preventing the boundary burst!
       const s4 = store.consume({ key: slidingKey, limit, windowMs, algorithm: 'sliding-window', now: 10_002 });
       assert.equal(s4.allowed, false, 'Sliding Window strictly blocks boundary burst');
       assert.equal(s4.remaining, 0);
-      assert.equal(s4.retryAfter, 10); // 9500 + 10000 - 10002 = 9498ms -> 10 seconds
+      assert.equal(s4.retryAfter, 10);
     });
   });
 
@@ -197,18 +183,18 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
 
       const clientIp = '192.168.5.1';
 
-      // Req 1
+      // req 1
       const res1 = await request(app).get('/api/sliding-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res1.status, 200);
       assert.equal(res1.headers['ratelimit-limit'], '2');
       assert.equal(res1.headers['ratelimit-remaining'], '1');
 
-      // Req 2
+      // req 2
       const res2 = await request(app).get('/api/sliding-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res2.status, 200);
       assert.equal(res2.headers['ratelimit-remaining'], '0');
 
-      // Req 3 (Blocked)
+      // req 3 blocked
       const res3 = await request(app).get('/api/sliding-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res3.status, 429);
       assert.equal(res3.body.success, false);

@@ -1,36 +1,14 @@
 import { EventEmitter } from 'node:events';
 import { CircuitBreakerOpenError } from './errors.js';
 
-/**
- * Standard Circuit Breaker state enumeration.
- */
 export const CIRCUIT_STATE = Object.freeze({
   CLOSED: 'CLOSED',
   OPEN: 'OPEN',
   HALF_OPEN: 'HALF_OPEN'
 });
 
-/**
- * In-memory Store Circuit Breaker.
- *
- * Implements the standard three-state pattern (CLOSED, OPEN, HALF_OPEN)
- * to prevent hammering unhealthy or timing out rate-limiting stores (e.g. Redis).
- *
- * Transitions:
- * Transitions:
- * - CLOSED    -> OPEN: When consecutive store failures exceed failureThreshold.
- * - OPEN      -> HALF_OPEN: Lazy on-demand transition evaluated when next request arrives after resetTimeoutMs has elapsed.
- * - HALF_OPEN -> CLOSED: When a single-flight canary probe succeeds.
- * - HALF_OPEN -> OPEN: When a canary probe fails.
- */
 export class CircuitBreaker extends EventEmitter {
-  /**
-   * @param {Object} [options]
-   * @param {number} [options.failureThreshold=5] - Consecutive failures before opening the circuit
-   * @param {number} [options.resetTimeoutMs=10000] - Duration in ms before transitioning from OPEN to HALF_OPEN
-   * @param {number} [options.successThreshold=1] - Consecutive successful probes in HALF_OPEN to close the circuit
-   * @param {(err: Error) => boolean} [options.isFailure] - Optional predicate to classify if an error counts towards circuit trip
-   */
+  
   constructor(options = {}) {
     super();
 
@@ -78,11 +56,6 @@ export class CircuitBreaker extends EventEmitter {
     this.probeGeneration = 0;
   }
 
-  /**
-   * Returns the current circuit state, lazily evaluating OPEN -> HALF_OPEN timeout expiration.
-   *
-   * @returns {'CLOSED'|'OPEN'|'HALF_OPEN'}
-   */
   getState() {
     if (this.state === CIRCUIT_STATE.OPEN && Date.now() >= this.nextAttempt) {
       this._transitionTo(CIRCUIT_STATE.HALF_OPEN);
@@ -90,40 +63,18 @@ export class CircuitBreaker extends EventEmitter {
     return this.state;
   }
 
-  /**
-   * Checks whether the circuit is currently OPEN (blocking calls).
-   *
-   * @returns {boolean}
-   */
   isOpen() {
     return this.getState() === CIRCUIT_STATE.OPEN;
   }
 
-  /**
-   * Checks whether the circuit is currently CLOSED (normal operation).
-   *
-   * @returns {boolean}
-   */
   isClosed() {
     return this.getState() === CIRCUIT_STATE.CLOSED;
   }
 
-  /**
-   * Checks whether the circuit is currently HALF_OPEN (canary probe phase).
-   *
-   * @returns {boolean}
-   */
   isHalfOpen() {
     return this.getState() === CIRCUIT_STATE.HALF_OPEN;
   }
 
-  /**
-   * Internal transition handler that updates state and emits events.
-   *
-   * @private
-   * @param {'CLOSED'|'OPEN'|'HALF_OPEN'} nextState
-   * @param {Object} [context]
-   */
   _transitionTo(nextState, context = {}) {
     if (this.state === nextState) return;
 
@@ -175,13 +126,6 @@ export class CircuitBreaker extends EventEmitter {
       this.state === CIRCUIT_STATE.HALF_OPEN;
   }
 
-  /**
-   * Wraps an async store operation with circuit breaker protection.
-   *
-   * @template T
-   * @param {() => Promise<T>|T} fn - Store operation factory
-   * @returns {Promise<T>}
-   */
   async execute(fn) {
     if (typeof fn !== 'function') {
       throw new TypeError("SmartRate: CircuitBreaker.execute() expects a function argument.");
@@ -227,11 +171,6 @@ export class CircuitBreaker extends EventEmitter {
     }
   }
 
-  /**
-   * Records a successful execution.
-   *
-   * @private
-   */
   _recordSuccess(probeToken = null) {
     const isProbe = probeToken !== null;
     if (isProbe && !this._ownsProbe(probeToken)) return;
@@ -247,13 +186,6 @@ export class CircuitBreaker extends EventEmitter {
     }
   }
 
-  /**
-   * Records a failed execution.
-   *
-   * @private
-   * @param {Error} err
-   * @param {number|null} [probeToken=null]
-   */
   _recordFailure(err, probeToken = null) {
     const isProbe = probeToken !== null;
     if (isProbe && !this._ownsProbe(probeToken)) return;
@@ -270,29 +202,16 @@ export class CircuitBreaker extends EventEmitter {
     }
   }
 
-  /**
-   * Manually trips the circuit into OPEN state.
-   *
-   * @param {Error} [error]
-   */
   trip(error) {
     this._invalidateProbe();
     this._transitionTo(CIRCUIT_STATE.OPEN, { error, manual: true });
   }
 
-  /**
-   * Manually resets the circuit into CLOSED state.
-   */
   reset() {
     this._invalidateProbe();
     this._transitionTo(CIRCUIT_STATE.CLOSED, { manual: true });
   }
 
-  /**
-   * Returns a snapshot of circuit breaker metrics and internal state.
-   *
-   * @returns {Object}
-   */
   getStats() {
     return {
       state: this.getState(),

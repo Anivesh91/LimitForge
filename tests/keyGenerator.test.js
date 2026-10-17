@@ -11,9 +11,6 @@ function createTestApp() {
   return app;
 }
 
-/**
- * Creates a simulated Redis client supporting both fixed and sliding window.
- */
 function createSimulatedRedisClient() {
   const strings = new Map();
   const zsets = new Map();
@@ -22,7 +19,7 @@ function createSimulatedRedisClient() {
     async eval(script, options) {
       const key = options.keys[0];
 
-      // Sliding Window simulation
+      // sliding window simulation
       if (options.arguments.length >= 4) {
         const now = Number(options.arguments[0]);
         const windowMs = Number(options.arguments[1]);
@@ -44,7 +41,7 @@ function createSimulatedRedisClient() {
         return [allowed, entries.length, oldestScore];
       }
 
-      // Fixed Window simulation
+      // fixed window simulation
       const windowMs = Number(options.arguments[0]);
       const now = Date.now();
       let entry = strings.get(key);
@@ -124,13 +121,13 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
       const ip1 = '192.168.10.1';
       const ip2 = '192.168.10.2';
 
-      // Exhaust IP 1
+      // exhaust ip 1
       await request(app).get('/api/default-id').set('X-Forwarded-For', ip1);
       await request(app).get('/api/default-id').set('X-Forwarded-For', ip1);
       const blocked1 = await request(app).get('/api/default-id').set('X-Forwarded-For', ip1);
       assert.equal(blocked1.status, 429);
 
-      // IP 2 must have full fresh quota
+      // ip 2 must have full fresh quota
       const res2 = await request(app).get('/api/default-id').set('X-Forwarded-For', ip2);
       assert.equal(res2.status, 200);
       assert.equal(res2.headers['ratelimit-remaining'], '1');
@@ -141,7 +138,7 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
     it('isolates different users sharing the exact same IP address', async () => {
       const app = createTestApp();
 
-      // Middleware simulating authenticated session
+      // middleware simulating authenticated session
       app.use((req, res, next) => {
         if (req.headers['authorization']) {
           req.user = { id: req.headers['authorization'].replace('Bearer ', '') };
@@ -159,9 +156,9 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
         (req, res) => res.json({ success: true, user: req.user?.id })
       );
 
-      const sharedOfficeIp = '203.0.113.195'; // Single public NAT IP
+      const sharedOfficeIp = '203.0.113.195'; // single public nat ip
 
-      // User Alice (user_alice) makes 2 requests -> Allowed
+      // user alice makes requests
       const a1 = await request(app)
         .get('/api/dashboard')
         .set('X-Forwarded-For', sharedOfficeIp)
@@ -176,14 +173,13 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
       assert.equal(a2.status, 200);
       assert.equal(a2.headers['ratelimit-remaining'], '0');
 
-      // User Alice makes 3rd request -> Blocked 429
+      // user alice makes 3rd request blocked 429
       const a3 = await request(app)
         .get('/api/dashboard')
         .set('X-Forwarded-For', sharedOfficeIp)
         .set('Authorization', 'Bearer user_alice');
       assert.equal(a3.status, 429);
 
-      // User Bob (user_bob) on the SAME office IP makes requests -> Must NOT be blocked!
       const b1 = await request(app)
         .get('/api/dashboard')
         .set('X-Forwarded-For', sharedOfficeIp)
@@ -222,7 +218,7 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
       const apiKeyA = 'sk_live_alpha_123';
       const apiKeyB = 'sk_live_bravo_456';
 
-      // Exhaust API Key A
+      // exhaust api key a
       for (let i = 0; i < 3; i++) {
         const res = await request(app).get('/v1/data').set('X-API-Key', apiKeyA);
         assert.equal(res.status, 200);
@@ -230,7 +226,7 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
       const blockedA = await request(app).get('/v1/data').set('X-API-Key', apiKeyA);
       assert.equal(blockedA.status, 429);
 
-      // API Key B is completely independent
+      // api key b is completely independent
       const resB = await request(app).get('/v1/data').set('X-API-Key', apiKeyB);
       assert.equal(resB.status, 200);
       assert.equal(resB.headers['ratelimit-remaining'], '2');
@@ -255,12 +251,12 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
         (req, res) => res.json({ success: true })
       );
 
-      // Same user identifier 'admin' in Tenant A vs Tenant B
+      // same user identifier admin in tenant a vs tenant b
       const tenantA = 'acme_corp';
       const tenantB = 'initech_corp';
       const userId = 'admin';
 
-      // Exhaust Tenant A's admin
+      // exhaust tenant a s admin
       await request(app)
         .get('/api/tenant-resource')
         .set('X-Tenant-ID', tenantA)
@@ -276,7 +272,6 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
         .set('X-User-ID', userId);
       assert.equal(blockedTenantA.status, 429);
 
-      // Tenant B's admin must have independent quota despite same user ID
       const resTenantB = await request(app)
         .get('/api/tenant-resource')
         .set('X-Tenant-ID', tenantB)
@@ -294,7 +289,7 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
         rateLimiter({
           limit: 2,
           windowMs: 60_000,
-          keyGenerator: (req) => req.headers['x-api-key'] // Returns undefined for unauthenticated requests
+          keyGenerator: (req) => req.headers['x-api-key']
         }),
         (req, res) => res.json({ success: true })
       );
@@ -302,14 +297,14 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
       const publicIp1 = '198.51.100.1';
       const publicIp2 = '198.51.100.2';
 
-      // Public client 1 (no API key header) exhausts quota
+      // public client 1 no api key header exhausts quota
       await request(app).get('/api/optional-auth').set('X-Forwarded-For', publicIp1);
       await request(app).get('/api/optional-auth').set('X-Forwarded-For', publicIp1);
 
       const blocked = await request(app).get('/api/optional-auth').set('X-Forwarded-For', publicIp1);
       assert.equal(blocked.status, 429);
 
-      // Public client 2 (different IP) has fresh quota
+      // public client 2 different ip has fresh quota
       const resIp2 = await request(app).get('/api/optional-auth').set('X-Forwarded-For', publicIp2);
       assert.equal(resIp2.status, 200);
     });
@@ -336,14 +331,14 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
       const clientA = 'mobile-app-client';
       const clientB = 'web-frontend-client';
 
-      // Exhaust Client A on Redis Sliding Window
+      // exhaust client a on redis sliding window
       await request(app).get('/api/redis-custom-key').set('X-Client-ID', clientA);
       await request(app).get('/api/redis-custom-key').set('X-Client-ID', clientA);
 
       const blockedA = await request(app).get('/api/redis-custom-key').set('X-Client-ID', clientA);
       assert.equal(blockedA.status, 429);
 
-      // Client B on same route has fresh quota
+      // client b on same route has fresh quota
       const resB = await request(app).get('/api/redis-custom-key').set('X-Client-ID', clientB);
       assert.equal(resB.status, 200);
       assert.equal(resB.headers['ratelimit-remaining'], '1');
@@ -408,9 +403,9 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
         hashClientIdentifier: true
       });
 
-      // Does not contain raw secret API key
+      // does not contain raw secret api key
       assert.equal(key.includes(secretApiKey), false);
-      // Key contains 64-character hex SHA-256 digest
+      // key contains 64 character hex sha 256 digest
       const keyParts = key.split(':');
       const hashDigest = keyParts[keyParts.length - 1];
       assert.equal(hashDigest.length, 64);
@@ -458,19 +453,18 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
       const secretTokenA = 'Bearer secret-jwt-token-alpha';
       const secretTokenB = 'Bearer secret-jwt-token-beta';
 
-      // Request 1 & 2 for Token A succeed
+      // request 1 2 for token a succeed
       assert.equal((await request(app).get('/api/secure-vault').set('Authorization', secretTokenA)).status, 200);
       assert.equal((await request(app).get('/api/secure-vault').set('Authorization', secretTokenA)).status, 200);
 
-      // Request 3 for Token A blocked (429)
+      // request 3 for token a blocked 429
       const blockedRes = await request(app).get('/api/secure-vault').set('Authorization', secretTokenA);
       assert.equal(blockedRes.status, 429);
 
-      // Token B still has full fresh quota
+      // token b still has full fresh quota
       const resB = await request(app).get('/api/secure-vault').set('Authorization', secretTokenB);
       assert.equal(resB.status, 200);
 
-      // Verify that NO key in the store contains the literal raw secret tokens
       for (const key of store.store.keys()) {
         assert.equal(key.includes(secretTokenA), false, `Key ${key} must not contain raw secret token`);
         assert.equal(key.includes(secretTokenB), false, `Key ${key} must not contain raw secret token`);

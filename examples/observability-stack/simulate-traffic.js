@@ -1,12 +1,4 @@
-/**
- * SmartRate V7 — Automated Observability Traffic Simulator
- *
- * Runs realistic multi-stage traffic against the SmartRate server:
- * 1. Steady Baseline Traffic (200 OKs)
- * 2. Rate-Limiting Burst (429 Too Many Requests)
- * 3. Chaos Injection (Redis failure -> Degraded fallback & Circuit Breaker trip)
- * 4. Recovery & Health (Canary probe -> Circuit Breaker recovery)
- */
+
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -47,7 +39,7 @@ async function runSimulation() {
   console.log(`   Target: ${BASE_URL}`);
   console.log('================================================================================\n');
 
-  // Verify server reachability
+  // verify server reachability
   const health = await makeRequest('/health');
   if (health.status !== 200) {
     console.error(`[ERROR] Server at ${BASE_URL} is unreachable. Ensure the server is running.`);
@@ -55,9 +47,7 @@ async function runSimulation() {
   }
   console.log('[OK] Connected to SmartRate demo server.\n');
 
-  // ---------------------------------------------------------------------------
-  // STAGE 1: Steady Baseline Traffic
-  // ---------------------------------------------------------------------------
+  // stage 1 steady baseline traffic
   console.log('>>> STAGE 1: Steady Baseline Traffic (10 requests to /api/public and /api/users/:id)');
   for (let i = 1; i <= 5; i++) {
     const r1 = await makeRequest('/api/public');
@@ -67,9 +57,7 @@ async function runSimulation() {
   }
   console.log('  Stage 1 completed.\n');
 
-  // ---------------------------------------------------------------------------
-  // STAGE 2: Quota Burst -> 429 RateLimit Exceeded
-  // ---------------------------------------------------------------------------
+  // stage 2 quota burst 429 ratelimit exceeded
   console.log('>>> STAGE 2: Quota Burst (Sending 12 rapid requests to /api/users/99)');
   for (let i = 1; i <= 12; i++) {
     const res = await makeRequest('/api/users/99');
@@ -82,9 +70,6 @@ async function runSimulation() {
   }
   console.log('  Stage 2 completed.\n');
 
-  // ---------------------------------------------------------------------------
-  // STAGE 3: Chaos Injection -> Store Outage & Circuit Breaker Trip
-  // ---------------------------------------------------------------------------
   console.log('>>> STAGE 3: Chaos Injection (Simulating Redis outage)');
   await makeRequest('/api/chaos/break-store', 'POST');
   console.log('  Chaos active: Primary Redis store forced to ECONNREFUSED.');
@@ -99,9 +84,7 @@ async function runSimulation() {
   console.log(`  Circuit Breaker State: ${breakerCheck.data?.circuitBreaker?.state || 'OPEN'}`);
   console.log('  Stage 3 completed: smartrate_store_errors_total & circuit_breaker_state recorded.\n');
 
-  // ---------------------------------------------------------------------------
-  // STAGE 4: Recovery -> Heal Store & Canary Probe
-  // ---------------------------------------------------------------------------
+  // stage 4 recovery heal store canary probe
   console.log('>>> STAGE 4: Store Recovery (Restoring Redis)');
   await makeRequest('/api/chaos/heal-store', 'POST');
   console.log('  Chaos deactivated: Primary store restored.');
@@ -116,9 +99,7 @@ async function runSimulation() {
   console.log(`  Circuit Breaker Recovered State: ${recoveredHealth.data?.circuitBreaker?.state || 'CLOSED'}`);
   console.log('  Stage 4 completed.\n');
 
-  // ---------------------------------------------------------------------------
-  // STAGE 5: Metrics Scrape Verification
-  // ---------------------------------------------------------------------------
+  // stage 5 metrics scrape verification
   console.log('>>> STAGE 5: Prometheus Scrape Verification');
   const metricsRes = await fetch(`${BASE_URL}/metrics`);
   const metricsText = await metricsRes.text();

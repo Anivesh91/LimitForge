@@ -17,7 +17,7 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 
 app.use(express.json());
 
-// 1. Setup OpenTelemetry Bridge
+// setup opentelemetry bridge
 const otelBridge = new OpenTelemetryBridge({
   getSpan: (req) => req.telemetrySpan
 });
@@ -33,23 +33,21 @@ app.use((req, res, next) => {
   next();
 });
 
-// 2. Setup Redis primary store with fallback capability
+// setup redis primary store with fallback capability
 let chaosActive = false;
 let redisClient = null;
 
 try {
   redisClient = createClient({ url: REDIS_URL });
   redisClient.on('error', (err) => {
-    // Expected during offline / chaos states
+    // expected during offline chaos states
   });
   await redisClient.connect().catch(() => {});
 } catch {
-  // If Redis is not running locally, chaos/mock will demonstrate fallback
 }
 
 const primaryRedisStore = new RedisStore({ client: redisClient });
 
-// Chaos-injectable proxy wrapper around primary store
 const primaryStoreWrapper = {
   name: 'redis',
   async consume(params) {
@@ -73,7 +71,7 @@ const resilientStore = new ResilientStore({
   timeoutMs: 250
 });
 
-// 3. Rate Limiters
+// rate limiters
 const publicLimiter = rateLimiter({
   limit: 20,
   windowMs: 15000,
@@ -103,7 +101,7 @@ const loginLimiter = rateLimiter({
   breakerId: 'auth-bucket'
 });
 
-// 4. API Routes
+// api routes
 app.get('/api/public', publicLimiter, (req, res) => {
   res.json({
     success: true,
@@ -127,7 +125,6 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
   });
 });
 
-// 5. Chaos & Resilience Testing Endpoints (Secured against unauthorized public access)
 const checkChaosAllowed = (req, res, next) => {
   if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_CHAOS) {
     return res.status(403).json({ error: 'Chaos testing is disabled in production' });
@@ -155,10 +152,10 @@ app.post('/api/chaos/heal-store', checkChaosAllowed, (req, res) => {
   });
 });
 
-// 6. Prometheus Exporter Endpoint
+// prometheus exporter endpoint
 app.get('/metrics', createPrometheusExporter());
 
-// Healthcheck
+// healthcheck
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -167,7 +164,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Global error handler
+// global error handler
 app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message });
 });

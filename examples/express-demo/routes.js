@@ -33,10 +33,6 @@ if (REDIS_URL) {
   }
 }
 
-/**
- * Route 1: GET /api/test
- * Policy: 5 requests per 60 seconds
- */
 router.get(
   '/test',
   rateLimiter({
@@ -47,10 +43,6 @@ router.get(
   testController
 );
 
-/**
- * Route 2: POST /api/login
- * Policy: 3 requests per 60 seconds (Simulates strict endpoint protection)
- */
 router.post(
   '/login',
   rateLimiter({
@@ -61,10 +53,6 @@ router.post(
   loginController
 );
 
-/**
- * Route 3: GET /api/public
- * Policy: 10 requests per 60 seconds (Simulates higher allowance public endpoint)
- */
 router.get(
   '/public',
   rateLimiter({
@@ -75,10 +63,6 @@ router.get(
   publicController
 );
 
-/**
- * Route 4: GET /api/distributed
- * Demonstrates shared distributed quota across instances
- */
 router.get(
   '/distributed',
   rateLimiter({
@@ -96,10 +80,6 @@ router.get(
   }
 );
 
-/**
- * Route 5: GET /api/status
- * Healthcheck & runtime store status
- */
 router.get('/status', (req, res) => {
   res.json({
     status: 'online',

@@ -1,9 +1,4 @@
-/**
- * SmartRate — Telemetry Event Constants & Enums
- *
- * Defines standardized metric names, types, gauge state mappings,
- * and default latency histogram bucket thresholds.
- */
+
 
 export const METRIC_TYPE = Object.freeze({
   COUNTER: 'counter',
@@ -25,10 +20,6 @@ export const CIRCUIT_STATE_GAUGE_VALUES = Object.freeze({
   OPEN: 2
 });
 
-/**
- * Targeted histogram buckets for rate limiter store operations in seconds:
- * Ranges from 0.5ms (0.0005s) up to 1.0s, matching typical in-memory and Redis I/O.
- */
 export const DEFAULT_STORE_DURATION_BUCKETS = Object.freeze([
   0.0005,
   0.001,

@@ -2,15 +2,6 @@ import crypto from 'node:crypto';
 
 export const MAX_IDENTIFIER_LENGTH = 256;
 
-/**
- * Generates namespaced rate-limit keys: {prefix}:{algorithm}:{method}:{normalizedRoute}:{clientIdentifier}
- * Strips query parameters so requests map to the same route quota.
- *
- * Security & Pathological Guards:
- * - Binds clientIdentifier length to MAX_IDENTIFIER_LENGTH (256 chars) to prevent memory bloat.
- * - Supports optional cryptographic SHA-256 hashing (hashClientIdentifier: true) so sensitive
- *   API keys, Bearer tokens, or PII are never stored in plaintext within Redis keys.
- */
 export function buildRateLimitKey({
   prefix = 'smartrate',
   algorithm = 'fixed-window',

@@ -11,8 +11,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// 1. Simulated OpenTelemetry span injection middleware
-// (In production, this is done automatically by @opentelemetry/instrumentation-express)
+// simulated opentelemetry span injection middleware
 const otelBridge = new OpenTelemetryBridge({
   getSpan: (req) => req.telemetrySpan
 });
@@ -31,16 +30,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// 2. High-throughput API route protected by Sliding Window + Observability
 const apiLimiter = rateLimiter({
   limit: 5,
   windowMs: 30000,
   algorithm: 'sliding-window',
-  metrics: true, // Automatically registers with defaultMetricsCollector
+  metrics: true,
   openTelemetry: otelBridge
 });
 
-// 3. Sensitive / Login route protected by Token Bucket
+// sensitive login route protected by token bucket
 const authLimiter = rateLimiter({
   capacity: 3,
   refillRate: 1,
@@ -50,7 +48,7 @@ const authLimiter = rateLimiter({
   openTelemetry: otelBridge
 });
 
-// Routes
+// routes
 app.get('/api/users/:id', apiLimiter, (req, res) => {
   res.json({
     success: true,
@@ -66,10 +64,10 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   });
 });
 
-// 4. Prometheus Scrape Endpoint
+// prometheus scrape endpoint
 app.get('/metrics', createPrometheusExporter());
 
-// Healthcheck
+// healthcheck
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', uptime: process.uptime() });
 });

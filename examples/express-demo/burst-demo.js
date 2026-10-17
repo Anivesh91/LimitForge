@@ -11,10 +11,9 @@ app.use(express.json());
 
 const store = new MemoryStore();
 
-// Token Bucket configuration:
-// - capacity: 5 (burst capacity)
-// - refillRate: 1 token
-// - refillIntervalMs: 1000 (1 token per second continuous sustained rate)
+// token bucket configuration
+// capacity 5 burst capacity
+// refillrate 1 token
 const BURST_CAPACITY = 5;
 const REFILL_RATE = 1;
 const REFILL_INTERVAL_MS = 1000;
@@ -71,7 +70,7 @@ const server = app.listen(PORT, async () => {
   console.log(`⚙️  Policy: Capacity = ${BURST_CAPACITY} tokens, Refill = ${REFILL_RATE} token / ${REFILL_INTERVAL_MS}ms`);
   console.log(`=============================================================\n`);
 
-  // Run automated demonstration simulation
+  // run automated demonstration simulation
   try {
     await runSimulation();
   } catch (error) {

@@ -8,13 +8,9 @@ const PORT = Number(process.env.DEMO_PORT || 3002);
 app.set('trust proxy', true);
 app.use(express.json());
 
-// In-memory store instance for demonstration
+// in memory store instance for demonstration
 const memoryStore = new MemoryStore();
 
-/**
- * Route 1: Fixed Window Demonstration
- * Limit: 5 requests per 10 seconds
- */
 app.get(
   '/api/fixed',
   rateLimiter({
@@ -33,10 +29,6 @@ app.get(
   }
 );
 
-/**
- * Route 2: Sliding Window Demonstration
- * Limit: 5 requests per 10 seconds (Rolling)
- */
 app.get(
   '/api/sliding',
   rateLimiter({
@@ -55,9 +47,6 @@ app.get(
   }
 );
 
-/**
- * Root Route: Usage Guide
- */
 app.get('/', (req, res) => {
   res.json({
     title: 'SmartRate v3 — Algorithm Comparison Demo',
@@ -96,7 +85,7 @@ export function startDemoServer(port = PORT) {
   });
 }
 
-// Auto-start server if executed directly from CLI
+// auto start server if executed directly from cli
 if (process.argv[1] && process.argv[1].endsWith('sliding-demo.js')) {
   startDemoServer();
 }

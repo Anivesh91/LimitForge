@@ -6,10 +6,6 @@ import { rateLimiter } from '../src/index.js';
 import demoRoutes from '../examples/express-demo/routes.js';
 import { cleanupExpiredRecords } from '../src/limiter/rateLimiter.js';
 
-/**
- * Helper to build an Express app configured with trust proxy for test-only IP spoofing.
- * Production/demo app keeps its own configuration without hardcoded trust proxy.
- */
 function createTestApp() {
   const app = express();
   app.set('trust proxy', true);
@@ -194,7 +190,7 @@ describe('SmartRate v1 — Test Suite', () => {
       const res2 = await request(app).get('/test-expiry').set('X-Forwarded-For', testIp);
       assert.equal(res2.status, 429);
 
-      // Wait 120ms for window to elapse
+      // wait 120ms for window to elapse
       await new Promise((resolve) => setTimeout(resolve, 120));
 
       const res3 = await request(app).get('/test-expiry').set('X-Forwarded-For', testIp);
@@ -274,7 +270,7 @@ describe('SmartRate v1 — Test Suite', () => {
         (req, res) => res.json({ success: true })
       );
 
-      // Express error handling middleware
+      // express error handling middleware
       app.use((err, req, res, next) => {
         res.status(500).json({ error: err.message });
       });

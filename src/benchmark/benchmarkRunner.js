@@ -3,12 +3,6 @@ import { MemoryStore } from '../stores/memoryStore.js';
 import { MetricsCollector } from '../telemetry/metricsCollector.js';
 import { OpenTelemetryBridge } from '../telemetry/openTelemetryBridge.js';
 
-/**
- * Calculates statistical percentiles and summary metrics from an array of nanosecond durations.
- *
- * @param {bigint[]|number[]} samplesNs - Latency durations in nanoseconds
- * @returns {Object} Calculated metrics in microseconds and milliseconds
- */
 export function calculatePercentiles(samplesNs) {
   if (!Array.isArray(samplesNs) || samplesNs.length === 0) {
     return {
@@ -30,7 +24,6 @@ export function calculatePercentiles(samplesNs) {
     };
   }
 
-  // Convert to numbers in microseconds for accurate floating-point math
   const samplesUs = samplesNs
     .map((ns) => (typeof ns === 'bigint' ? Number(ns) / 1000 : Number(ns) / 1000))
     .sort((a, b) => a - b);
@@ -73,14 +66,6 @@ export function calculatePercentiles(samplesNs) {
   };
 }
 
-/**
- * Creates a mock Express request and response object pair.
- *
- * @param {string} ip
- * @param {string} path
- * @param {string} [method='GET']
- * @returns {{ req: Object, res: Object }}
- */
 function createMockHttpPair(ip = '192.168.1.1', path = '/api/resource', method = 'GET') {
   const req = {
     method,
@@ -117,22 +102,14 @@ function createMockHttpPair(ip = '192.168.1.1', path = '/api/resource', method =
   return { req, res };
 }
 
-/**
- * Runs a performance benchmark across all SmartRate rate limiting algorithms and telemetry configurations.
- *
- * @param {Object} [options={}]
- * @param {number} [options.iterations=10000] - Number of measurement requests per scenario
- * @param {number} [options.warmup=1000] - Number of unmeasured warmup requests to prime V8 JIT
- * @returns {Promise<Object>} Benchmark results
- */
 export async function runBenchmark(options = {}) {
   const iterations = options.iterations || 10000;
   const warmup = options.warmup ?? 1000;
 
-  // Next function stub
+  // next function stub
   const nextStub = () => {};
 
-  // Define scenarios
+  // define scenarios
   const scenarios = [
     {
       name: '1. No-op Middleware (next() only)',
@@ -200,14 +177,14 @@ export async function runBenchmark(options = {}) {
       addEvent(name, attrs) { this.events.push({ name, attrs }); }
     };
 
-    // Warmup phase (let V8 JIT compile hot paths)
+    // warmup phase let v8 jit compile hot paths
     for (let i = 0; i < warmup; i++) {
       const { req, res } = createMockHttpPair(`10.0.0.${(i % 50) + 1}`, '/api/benchmark');
       req.span = mockSpan;
       await scenario.middleware(req, res, nextStub);
     }
 
-    // Measurement phase
+    // measurement phase
     const samplesNs = [];
     const totalStart = process.hrtime.bigint();
 
@@ -236,7 +213,7 @@ export async function runBenchmark(options = {}) {
     });
   }
 
-  // Calculate relative overhead against baseline
+  // calculate relative overhead against baseline
   const baselineStats = results[0].stats;
 
   const enrichedResults = results.map((r, idx) => {
