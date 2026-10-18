@@ -59,12 +59,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Anivesh91/RateShield.git"
+    "url": "git+https://github.com/Anivesh91/LimitForge.git"
   },
   "bugs": {
-    "url": "https://github.com/Anivesh91/RateShield/issues"
+    "url": "https://github.com/Anivesh91/LimitForge/issues"
   },
-  "homepage": "https://github.com/Anivesh91/RateShield#readme",
+  "homepage": "https://github.com/Anivesh91/LimitForge#readme",
   "peerDependencies": {
     "express": "^4.21.2 || ^5.0.0",
     "redis": ">=4.0.0"

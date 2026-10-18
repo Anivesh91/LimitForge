@@ -53,7 +53,7 @@ app.get('/api/users/:id', apiLimiter, (req, res) => {
   res.json({
     success: true,
     user: { id: req.params.id, name: 'Alice Developer' },
-    message: 'Request allowed by RateShield Sliding Window'
+    message: 'Request allowed by LimitForge Sliding Window'
   });
 });
 
@@ -80,7 +80,7 @@ const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === path.
 if (isMainModule) {
   app.listen(PORT, () => {
     console.log('================================================================================');
-    console.log(`   RateShield V7 — Observability & Prometheus Demo Server`);
+    console.log(`   LimitForge V7 — Observability & Prometheus Demo Server`);
     console.log('================================================================================');
     console.log(`• Listening on:            http://localhost:${PORT}`);
     console.log(`• Prometheus /metrics:    http://localhost:${PORT}/metrics`);

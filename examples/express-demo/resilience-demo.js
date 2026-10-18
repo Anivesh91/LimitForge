@@ -128,7 +128,7 @@ app.get(
 
 app.get('/', (req, res) => {
   res.json({
-    title: 'RateShield v6 — Production Resilience & Store Fault Tolerance Demo',
+    title: 'LimitForge v6 — Production Resilience & Store Fault Tolerance Demo',
     description: 'Demonstrates store timeout protection, circuit breaker, dual-store fallback, safe local degradation, and seamless recovery.',
     configuration: {
       primaryStore: 'SimulatedRedisStore',
@@ -152,7 +152,7 @@ app.get('/', (req, res) => {
 
 const server = app.listen(PORT, async () => {
   console.log(`\n=============================================================`);
-  console.log(`🛡️  RateShield v6 — Production Resilience & Fault Tolerance Demo`);
+  console.log(`🛡️  LimitForge v6 — Production Resilience & Fault Tolerance Demo`);
   console.log(`📡 Server listening on http://localhost:${PORT}`);
   console.log(`⚙️  Store: ResilientStore (Primary: Redis, Fallback: MemoryStore)`);
   console.log(`⚙️  CircuitBreaker: failureThreshold = 3, resetTimeout = 1200ms, timeoutGuard = 100ms`);

@@ -35,7 +35,7 @@ async function makeRequest(path, method = 'GET', body = null) {
 
 async function runSimulation() {
   console.log('================================================================================');
-  console.log(`   RateShield V7 Observability Traffic Simulator`);
+  console.log(`   LimitForge V7 Observability Traffic Simulator`);
   console.log(`   Target: ${BASE_URL}`);
   console.log('================================================================================\n');
 
@@ -45,7 +45,7 @@ async function runSimulation() {
     console.error(`[ERROR] Server at ${BASE_URL} is unreachable. Ensure the server is running.`);
     process.exit(1);
   }
-  console.log('[OK] Connected to RateShield demo server.\n');
+  console.log('[OK] Connected to LimitForge demo server.\n');
 
   // stage 1 steady baseline traffic
   console.log('>>> STAGE 1: Steady Baseline Traffic (10 requests to /api/public and /api/users/:id)');
