@@ -105,11 +105,8 @@ function createMockHttpPair(ip = '192.168.1.1', path = '/api/resource', method =
 export async function runBenchmark(options = {}) {
   const iterations = options.iterations || 10000;
   const warmup = options.warmup ?? 1000;
-
-  // next function stub
   const nextStub = () => {};
 
-  // define scenarios
   const scenarios = [
     {
       name: '1. No-op Middleware (next() only)',
@@ -177,14 +174,14 @@ export async function runBenchmark(options = {}) {
       addEvent(name, attrs) { this.events.push({ name, attrs }); }
     };
 
-    // warmup phase let v8 jit compile hot paths
+    // Warmup phase
     for (let i = 0; i < warmup; i++) {
       const { req, res } = createMockHttpPair(`10.0.0.${(i % 50) + 1}`, '/api/benchmark');
       req.span = mockSpan;
       await scenario.middleware(req, res, nextStub);
     }
 
-    // measurement phase
+    // Measurement phase
     const samplesNs = [];
     const totalStart = process.hrtime.bigint();
 
@@ -202,7 +199,6 @@ export async function runBenchmark(options = {}) {
     const totalElapsedNs = process.hrtime.bigint() - totalStart;
     const totalElapsedSec = Number(totalElapsedNs) / 1e9;
     const opsPerSec = Math.round(iterations / totalElapsedSec);
-
     const stats = calculatePercentiles(samplesNs);
 
     results.push({
@@ -213,9 +209,7 @@ export async function runBenchmark(options = {}) {
     });
   }
 
-  // calculate relative overhead against baseline
   const baselineStats = results[0].stats;
-
   const enrichedResults = results.map((r, idx) => {
     if (idx === 0) {
       return { ...r, overheadP50Us: 0, overheadP99Us: 0 };

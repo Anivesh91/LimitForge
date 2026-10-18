@@ -14,7 +14,6 @@ function serializeLabelKey(labels = {}) {
 }
 
 export class MetricsCollector {
-  
   constructor(options = {}) {
     this.storeDurationBuckets = options.storeDurationBuckets || DEFAULT_STORE_DURATION_BUCKETS;
     this.maxSeries = typeof options.maxSeries === 'number' && options.maxSeries > 0 ? options.maxSeries : 1000;
@@ -23,7 +22,7 @@ export class MetricsCollector {
     this.gauges = new Map();
     this.histograms = new Map();
 
-    // default gauge for circuit breaker state 0 closed
+    // Default gauge for circuit breaker state (0 = CLOSED)
     this.setGauge(METRIC_NAMES.CIRCUIT_BREAKER_STATE, CIRCUIT_STATE_GAUGE_VALUES.CLOSED);
   }
 
@@ -55,10 +54,10 @@ export class MetricsCollector {
       }
 
       const current = metricMap.get(labelKey) || { value: 0, labels: { ...targetLabels } };
-
       current.value += value;
       metricMap.set(labelKey, current);
     } catch {
+      // safe telemetry boundary
     }
   }
 
@@ -75,10 +74,8 @@ export class MetricsCollector {
       let targetLabels = labels;
       let labelKey = serializeLabelKey(targetLabels);
 
-      if (!metricMap.has(labelKey)) {
-        if (metricMap.size >= this.maxSeries) {
-          return;
-        }
+      if (!metricMap.has(labelKey) && metricMap.size >= this.maxSeries) {
+        return;
       }
 
       metricMap.set(labelKey, {
@@ -86,7 +83,7 @@ export class MetricsCollector {
         labels: { ...targetLabels }
       });
     } catch {
-      // fail silent
+      // safe telemetry boundary
     }
   }
 
@@ -103,14 +100,11 @@ export class MetricsCollector {
       let targetLabels = labels;
       let labelKey = serializeLabelKey(targetLabels);
 
-      if (!metricMap.has(labelKey)) {
-        if (metricMap.size >= this.maxSeries) {
-          return;
-        }
+      if (!metricMap.has(labelKey) && metricMap.size >= this.maxSeries) {
+        return;
       }
 
       let record = metricMap.get(labelKey);
-
       if (!record) {
         const sortedBounds = [...customBuckets].sort((a, b) => a - b);
         record = {
@@ -131,7 +125,7 @@ export class MetricsCollector {
         }
       }
     } catch {
-      // fail silent
+      // safe telemetry boundary
     }
   }
 
@@ -215,5 +209,4 @@ export class MetricsCollector {
   }
 }
 
-// default singleton collector instance
 export const defaultMetricsCollector = new MetricsCollector();

@@ -4,7 +4,6 @@ import { CircuitBreaker } from '../resilience/circuitBreaker.js';
 import { withTimeout } from '../resilience/timeoutGuard.js';
 
 export class ResilientStore extends EventEmitter {
-  
   constructor(options = {}) {
     super();
 
@@ -67,16 +66,14 @@ export class ResilientStore extends EventEmitter {
         : this.primaryStore.consume(params);
 
     let primaryError = null;
-
     try {
-      const primaryResult = this.circuitBreaker
+      const result = this.circuitBreaker
         ? await this.circuitBreaker.execute(runPrimary)
         : await runPrimary();
 
       this.emit('primarySuccess', { key: params.key });
-
       return {
-        ...primaryResult,
+        ...result,
         degraded: false,
         fallbackUsed: false,
         store: 'primary'
@@ -92,7 +89,6 @@ export class ResilientStore extends EventEmitter {
     });
 
     const fallbackResult = await this.fallbackStore.consume(params);
-
     return {
       ...fallbackResult,
       degraded: true,
@@ -121,3 +117,5 @@ export class ResilientStore extends EventEmitter {
     };
   }
 }
+
+export default ResilientStore;

@@ -12,7 +12,7 @@ export function buildRateLimitKey({
 } = {}) {
   const cleanMethod = (method || 'GET').toUpperCase();
   const cleanRoute = (route || '/').split('?')[0] || '/';
-  const rawId = (clientIdentifier !== undefined && clientIdentifier !== null && String(clientIdentifier).trim().length > 0)
+  const rawId = clientIdentifier && String(clientIdentifier).trim()
     ? String(clientIdentifier).trim()
     : '127.0.0.1';
 

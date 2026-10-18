@@ -8,7 +8,6 @@ export const CIRCUIT_STATE = Object.freeze({
 });
 
 export class CircuitBreaker extends EventEmitter {
-  
   constructor(options = {}) {
     super();
 
@@ -24,19 +23,16 @@ export class CircuitBreaker extends EventEmitter {
         `SmartRate: CircuitBreaker 'failureThreshold' must be a positive integer (received: ${failureThreshold}).`
       );
     }
-
     if (typeof resetTimeoutMs !== 'number' || !Number.isFinite(resetTimeoutMs) || resetTimeoutMs <= 0) {
       throw new RangeError(
         `SmartRate: CircuitBreaker 'resetTimeoutMs' must be a positive number in milliseconds (received: ${resetTimeoutMs}).`
       );
     }
-
     if (typeof successThreshold !== 'number' || !Number.isInteger(successThreshold) || successThreshold <= 0) {
       throw new RangeError(
         `SmartRate: CircuitBreaker 'successThreshold' must be a positive integer (received: ${successThreshold}).`
       );
     }
-
     if (typeof isFailure !== 'function') {
       throw new TypeError("SmartRate: CircuitBreaker 'isFailure' must be a function.");
     }
@@ -63,17 +59,9 @@ export class CircuitBreaker extends EventEmitter {
     return this.state;
   }
 
-  isOpen() {
-    return this.getState() === CIRCUIT_STATE.OPEN;
-  }
-
-  isClosed() {
-    return this.getState() === CIRCUIT_STATE.CLOSED;
-  }
-
-  isHalfOpen() {
-    return this.getState() === CIRCUIT_STATE.HALF_OPEN;
-  }
+  isOpen() { return this.getState() === CIRCUIT_STATE.OPEN; }
+  isClosed() { return this.getState() === CIRCUIT_STATE.CLOSED; }
+  isHalfOpen() { return this.getState() === CIRCUIT_STATE.HALF_OPEN; }
 
   _transitionTo(nextState, context = {}) {
     if (this.state === nextState) return;
@@ -132,7 +120,6 @@ export class CircuitBreaker extends EventEmitter {
     }
 
     const currentState = this.getState();
-
     if (currentState === CIRCUIT_STATE.OPEN) {
       const remainingMs = Math.max(0, this.nextAttempt - Date.now());
       throw new CircuitBreakerOpenError(
@@ -190,6 +177,7 @@ export class CircuitBreaker extends EventEmitter {
     const isProbe = probeToken !== null;
     if (isProbe && !this._ownsProbe(probeToken)) return;
     if (this.state === CIRCUIT_STATE.HALF_OPEN && !isProbe) return;
+
     this.lastFailureTime = Date.now();
     this.consecutiveFailures += 1;
 

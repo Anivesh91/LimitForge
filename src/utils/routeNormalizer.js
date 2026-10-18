@@ -1,5 +1,3 @@
-
-
 const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const NUMERIC_SEGMENT_REGEX = /\/\d+(?=\/|$)/g;
 const LONG_HEX_HASH_REGEX = /\/[0-9a-fA-F]{16,}(?=\/|$)/g;
@@ -11,10 +9,8 @@ export function sanitizePath(rawPath) {
     return '/';
   }
 
-  // strip query parameters
-  const pathWithoutQuery = rawPath.split('?')[0];
-
-  const sanitized = pathWithoutQuery
+  const cleanPath = rawPath.split('?')[0];
+  const sanitized = cleanPath
     .replace(UUID_REGEX, ':id')
     .replace(ULID_REGEX, '/:id')
     .replace(CUID_REGEX, '/:id')
@@ -33,6 +29,7 @@ export function normalizeRoute(req, customNormalizer) {
         return sanitizePath(custom);
       }
     } catch {
+      // ignore normalizer error and fallback
     }
   }
 

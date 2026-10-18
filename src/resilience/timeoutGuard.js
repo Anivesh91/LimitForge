@@ -11,16 +11,14 @@ export async function withTimeout(operation, timeoutMs) {
     return operation;
   }
 
-  let timerId;
+  let timer;
   const timeoutPromise = new Promise((_, reject) => {
-    timerId = setTimeout(() => {
-      reject(new StoreTimeoutError(timeoutMs));
-    }, timeoutMs);
+    timer = setTimeout(() => reject(new StoreTimeoutError(timeoutMs)), timeoutMs);
   });
 
   try {
     return await Promise.race([operation, timeoutPromise]);
   } finally {
-    clearTimeout(timerId);
+    clearTimeout(timer);
   }
 }
