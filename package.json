@@ -3,6 +3,9 @@
   "version": "8.0.0",
   "description": "Production-ready distributed rate limiting and resilience middleware for Express.js supporting Redis Lua, Token Bucket, Sliding Window, Circuit Breakers, and Prometheus metrics",
   "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "main": "./src/index.js",
   "types": "./index.d.ts",
   "exports": {
@@ -63,7 +66,8 @@
   },
   "homepage": "https://github.com/Anivesh91/RateShield#readme",
   "peerDependencies": {
-    "express": "^4.21.2 || ^5.0.0"
+    "express": "^4.21.2 || ^5.0.0",
+    "redis": ">=4.0.0"
   },
   "peerDependenciesMeta": {
     "redis": {
@@ -73,9 +77,7 @@
   "devDependencies": {
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "redis": "^6.2.1",
     "supertest": "^7.0.0"
-  },
-  "dependencies": {
-    "redis": "^6.2.1"
   }
 }
