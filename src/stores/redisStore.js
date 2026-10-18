@@ -5,17 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const FIXED_SCRIPT_PATH = path.join(__dirname, '../scripts/fixedWindow.lua');
-const FIXED_WINDOW_LUA = fs.readFileSync(FIXED_SCRIPT_PATH, 'utf-8');
 
-const SLIDING_SCRIPT_PATH = path.join(__dirname, '../scripts/slidingWindow.lua');
-const SLIDING_WINDOW_LUA = fs.readFileSync(SLIDING_SCRIPT_PATH, 'utf-8');
-
-const TOKEN_BUCKET_SCRIPT_PATH = path.join(__dirname, '../scripts/tokenBucket.lua');
-const TOKEN_BUCKET_LUA = fs.readFileSync(TOKEN_BUCKET_SCRIPT_PATH, 'utf-8');
+const FIXED_WINDOW_LUA = fs.readFileSync(path.join(__dirname, '../scripts/fixedWindow.lua'), 'utf-8');
+const SLIDING_WINDOW_LUA = fs.readFileSync(path.join(__dirname, '../scripts/slidingWindow.lua'), 'utf-8');
+const TOKEN_BUCKET_LUA = fs.readFileSync(path.join(__dirname, '../scripts/tokenBucket.lua'), 'utf-8');
 
 export class RedisStore {
-  
   constructor(options) {
     if (!options || typeof options !== 'object') {
       throw new TypeError('SmartRate: RedisStore options must be an object.');

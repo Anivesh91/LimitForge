@@ -1,7 +1,4 @@
-
-
 export class OpenTelemetryBridge {
-  
   constructor(options = {}) {
     this.tracer = options.tracer || null;
     this.getSpan = options.getSpan || null;
@@ -33,11 +30,9 @@ export class OpenTelemetryBridge {
     if (req && req.span && typeof req.span.setAttribute === 'function') {
       return req.span;
     }
-
     if (req && req.telemetrySpan && typeof req.telemetrySpan.setAttribute === 'function') {
       return req.telemetrySpan;
     }
-
     if (req && req._smartRateSpan && typeof req._smartRateSpan.setAttribute === 'function') {
       return req._smartRateSpan;
     }
@@ -69,7 +64,6 @@ export class OpenTelemetryBridge {
       const routeStr = normalizedRoute || '/';
       const storeStr = store || 'unknown';
 
-      // smartrate attributes backwards compatible
       span.setAttribute('smartrate.outcome', isAllowed ? 'allowed' : 'blocked');
       span.setAttribute('smartrate.algorithm', algoStr);
       span.setAttribute('smartrate.route', routeStr);
@@ -106,6 +100,7 @@ export class OpenTelemetryBridge {
         }
       }
     } catch {
+      // safe boundary
     }
   }
 
@@ -132,7 +127,7 @@ export class OpenTelemetryBridge {
         });
       }
     } catch {
-      // safe telemetry boundary
+      // safe boundary
     }
   }
 }

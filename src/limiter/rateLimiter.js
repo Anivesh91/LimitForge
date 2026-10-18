@@ -17,7 +17,6 @@ export function cleanupExpiredRecords() {
 }
 
 const defaultKeyGenerator = (req) => req.ip || req.socket?.remoteAddress || '127.0.0.1';
-
 const SUPPORTED_ALGORITHMS = Object.freeze(['fixed-window', 'sliding-window', 'token-bucket']);
 
 function validateOptions(options) {
@@ -256,10 +255,10 @@ export function rateLimiter(options = {}) {
     hashClientIdentifier = false,
     breakerId
   } = options;
+
   const algorithm = options.algorithm || 'fixed-window';
   let store = options.store || defaultMemoryStore;
   const keyGenerator = options.keyGenerator || defaultKeyGenerator;
-
   const collector = metricsCollector || (metrics ? defaultMetricsCollector : null);
 
   let otelBridge = null;
@@ -328,24 +327,24 @@ export function rateLimiter(options = {}) {
             collector.recordCircuitBreakerState(state, breakerLabels);
           }
         } catch {
-          // safe telemetry
+          // safe telemetry boundary
         }
       };
       breaker.on('stateChange', (evt) => recordCircuitBreakerState(evt.to));
       try {
         recordCircuitBreakerState(breaker.getState());
       } catch {
-        // safe telemetry
+        // safe telemetry boundary
       }
     }
   }
 
   const isResilient = store instanceof ResilientStore;
-
   const safeTelemetry = (fn) => {
     try {
       fn();
     } catch {
+      // safe telemetry boundary
     }
   };
 
@@ -388,11 +387,9 @@ export function rateLimiter(options = {}) {
         hashClientIdentifier
       });
 
-      // resolve dynamic limit windowms
       const resolvedLimit = typeof limit === 'function' ? await limit(req) : limit;
       const resolvedWindowMs = typeof windowMs === 'function' ? await windowMs(req) : windowMs;
 
-      // resolve dynamic capacity refillrate
       const resolvedCapacity = typeof capacity === 'function'
         ? await capacity(req)
         : (capacity ?? resolvedLimit);
@@ -410,7 +407,6 @@ export function rateLimiter(options = {}) {
         resolvedRefillRate = resolvedLimit * (resolvedRefillIntervalMs / resolvedWindowMs);
       }
 
-      // resolve dynamic request cost
       let requestCost = 1;
       if (typeof cost === 'function') {
         requestCost = await cost(req);
@@ -418,7 +414,6 @@ export function rateLimiter(options = {}) {
         requestCost = cost;
       }
 
-      // validate resolved dynamic values fail fast
       if (algorithm === 'token-bucket') {
         if (typeof resolvedCapacity !== 'number' || !Number.isInteger(resolvedCapacity) || resolvedCapacity <= 0) {
           throw new RangeError(`SmartRate: Dynamic 'capacity' must resolve to a positive integer (received: ${resolvedCapacity}).`);
