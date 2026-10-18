@@ -164,7 +164,6 @@ describe('SmartRate v7 — Day 3: OpenTelemetry Bridge, Alerting Rules & Grafana
         openTelemetry: true
       });
 
-      // simulated opentelemetry span injection middleware
       app.use((req, res, next) => {
         capturedSpan = {
           attributes: {},
@@ -178,13 +177,11 @@ describe('SmartRate v7 — Day 3: OpenTelemetry Bridge, Alerting Rules & Grafana
 
       app.get('/api/resource/:id', limiter, (req, res) => res.json({ ok: true }));
 
-      // request 1 allowed
       const res1 = await request(app).get('/api/resource/42');
       assert.equal(res1.status, 200);
       assert.equal(capturedSpan.attributes['smartrate.outcome'], 'allowed');
       assert.equal(capturedSpan.attributes['smartrate.route'], '/api/resource/:id');
 
-      // request 2 blocked 429
       const res2 = await request(app).get('/api/resource/42');
       assert.equal(res2.status, 429);
       assert.equal(capturedSpan.attributes['smartrate.outcome'], 'blocked');
@@ -323,7 +320,6 @@ describe('SmartRate v7 — Day 3: OpenTelemetry Bridge, Alerting Rules & Grafana
 
       const content = fs.readFileSync(alertFilePath, 'utf8');
 
-      // check required alert rules
       const requiredAlerts = [
         'SmartRateHighBlockRate',
         'SmartRateStoreOutage',
@@ -339,7 +335,6 @@ describe('SmartRate v7 — Day 3: OpenTelemetry Bridge, Alerting Rules & Grafana
         );
       }
 
-      // check metric names referenced
       assert.ok(content.includes('smartrate_requests_total'));
       assert.ok(content.includes('smartrate_store_errors_total'));
       assert.ok(content.includes('smartrate_circuit_breaker_state'));
@@ -362,7 +357,6 @@ describe('SmartRate v7 — Day 3: OpenTelemetry Bridge, Alerting Rules & Grafana
       assert.ok(Array.isArray(dashboard.panels));
       assert.ok(dashboard.panels.length >= 6);
 
-      // verify panel titles cover key observability facets
       const panelTitles = dashboard.panels.map((p) => p.title);
       assert.ok(panelTitles.some((t) => t.includes('Throughput')));
       assert.ok(panelTitles.some((t) => t.includes('Block Rate')));

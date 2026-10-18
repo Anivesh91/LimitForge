@@ -175,11 +175,9 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         metricsCollector: collector
       });
 
-      // api routes
       app.get('/api/users/:id', limiter, (req, res) => res.json({ id: req.params.id }));
       app.post('/api/checkout', limiter, (req, res) => res.json({ ok: true }));
 
-      // standard prometheus scrape endpoint
       app.get('/metrics', createPrometheusExporter({ collector }));
     });
 
@@ -190,28 +188,24 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         res.headers['content-type'],
         'text/plain; version=0.0.4; charset=utf-8'
       );
-      // circuit breaker default state should be present
+
       assert.ok(res.text.includes('smartrate_circuit_breaker_state 0'));
     });
 
     it('scrapes realistic multi-route rate limiting and failure traffic', async () => {
-      // send 2 allowed requests to api users 100
+
       await request(app).get('/api/users/100');
       await request(app).get('/api/users/100');
 
-      // third request exceeds limit 429
       await request(app).get('/api/users/100');
 
-      // send 1 request to api checkout 200
       await request(app).post('/api/checkout');
 
-      // scrape metrics
       const scrape = await request(app).get('/metrics');
       assert.equal(scrape.status, 200);
 
       const body = scrape.text;
 
-      // verify help and type headers
       assert.ok(body.includes('# HELP smartrate_requests_total Total number of rate limiter requests evaluated.'));
       assert.ok(body.includes('# TYPE smartrate_requests_total counter'));
 
@@ -231,7 +225,6 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         )
       );
 
-      // verify store duration histogram was generated
       assert.ok(body.includes('# TYPE smartrate_store_duration_seconds histogram'));
       assert.ok(body.includes('smartrate_store_duration_seconds_bucket{le="+Inf",store="memory"} 4'));
       assert.ok(body.includes('smartrate_store_duration_seconds_count{store="memory"} 4'));
@@ -267,7 +260,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
       };
 
       brokenApp.get('/metrics', createPrometheusExporter({ collector: brokenCollector }));
-      // express error handling middleware
+
       brokenApp.use((err, req, res, next) => {
         res.status(500).json({ error: err.message });
       });

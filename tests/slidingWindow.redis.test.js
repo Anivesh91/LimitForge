@@ -13,7 +13,6 @@ function createSimulatedRedisClient() {
     async eval(script, options) {
       const key = options.keys[0];
 
-      // sliding window lua simulation
       if (options.arguments.length >= 4) {
         const now = Number(options.arguments[0]);
         const windowMs = Number(options.arguments[1]);
@@ -30,20 +29,18 @@ function createSimulatedRedisClient() {
         let allowed = 0;
 
         if (currentCount < limit) {
-          // zadd add request with score now and unique member
+
           entries.push({ score: now, member });
           allowed = 1;
         }
 
         zsets.set(key, entries);
 
-        // zrange 0 0 withscores find oldest active timestamp
         const oldestScore = entries.length > 0 ? entries[0].score : now;
 
         return [allowed, entries.length, oldestScore];
       }
 
-      // fixed window lua simulation
       const windowMs = Number(options.arguments[0]);
       const now = Date.now();
       let entry = strings.get(key);
@@ -92,26 +89,22 @@ describe('SmartRate v3 — Redis Sliding Window Tests', () => {
     const windowMs = 60_000;
     const t0 = 100_000;
 
-    // request 1 allowed remaining 2
     const r1 = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 });
     assert.equal(r1.allowed, true);
     assert.equal(r1.count, 1);
     assert.equal(r1.remaining, 2);
     assert.ok(r1.reset > 0);
 
-    // request 2 allowed remaining 1
     const r2 = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 1000 });
     assert.equal(r2.allowed, true);
     assert.equal(r2.count, 2);
     assert.equal(r2.remaining, 1);
 
-    // request 3 allowed remaining 0 exact limit reached
     const r3 = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 2000 });
     assert.equal(r3.allowed, true);
     assert.equal(r3.count, 3);
     assert.equal(r3.remaining, 0);
 
-    // request 4 blocked with http 429
     const r4 = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 3000 });
     assert.equal(r4.allowed, false);
     assert.equal(r4.count, 3);
@@ -127,16 +120,13 @@ describe('SmartRate v3 — Redis Sliding Window Tests', () => {
     const limit = 2;
     const windowMs = 10_000;
 
-    // first request
     await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 10_000 });
-    // second request
+
     await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 15_000 });
 
-    // blocked request
     const blocked = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 18_000 });
     assert.equal(blocked.allowed, false);
 
-    // slot opens up
     const recovered = await redisStore.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 20_000 });
     assert.equal(recovered.allowed, true);
     assert.equal(recovered.count, 2);
@@ -183,7 +173,6 @@ describe('SmartRate v3 — Redis Sliding Window Tests', () => {
 
     const clientIp = '10.0.0.99';
 
-    // exhaust fixed window quota
     const f1 = await request(app).get('/api/algo-test?algo=fixed').set('X-Forwarded-For', clientIp);
     assert.equal(f1.status, 200);
 

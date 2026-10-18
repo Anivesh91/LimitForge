@@ -59,24 +59,20 @@ describe('SmartRate v2 — Redis Fixed Window & Expiration Tests', () => {
 
     const testIp = '10.0.0.1';
 
-    // request 1 count 1 remaining 2
     const res1 = await request(app).get('/api/redis-test').set('X-Forwarded-For', testIp);
     assert.equal(res1.status, 200);
     assert.equal(res1.headers['ratelimit-limit'], '3');
     assert.equal(res1.headers['ratelimit-remaining'], '2');
     assert.ok(Number(res1.headers['ratelimit-reset']) > 0);
 
-    // request 2 count 2 remaining 1
     const res2 = await request(app).get('/api/redis-test').set('X-Forwarded-For', testIp);
     assert.equal(res2.status, 200);
     assert.equal(res2.headers['ratelimit-remaining'], '1');
 
-    // request 3 count 3 remaining 0 exact limit reached
     const res3 = await request(app).get('/api/redis-test').set('X-Forwarded-For', testIp);
     assert.equal(res3.status, 200);
     assert.equal(res3.headers['ratelimit-remaining'], '0');
 
-    // request 4 n 1 blocked with http 429
     const res4 = await request(app).get('/api/redis-test').set('X-Forwarded-For', testIp);
     assert.equal(res4.status, 429);
     assert.equal(res4.body.success, false);
@@ -98,15 +94,12 @@ describe('SmartRate v2 — Redis Fixed Window & Expiration Tests', () => {
 
     const testIp = '10.0.0.2';
 
-    // request 1 allowed
     const res1 = await request(app).get('/api/redis-expiry').set('X-Forwarded-For', testIp);
     assert.equal(res1.status, 200);
 
-    // request 2 blocked within active window
     const res2 = await request(app).get('/api/redis-expiry').set('X-Forwarded-For', testIp);
     assert.equal(res2.status, 429);
 
-    // wait 60ms for redis ttl to expire
     await new Promise((resolve) => setTimeout(resolve, 60));
 
     const res3 = await request(app).get('/api/redis-expiry').set('X-Forwarded-For', testIp);
@@ -125,14 +118,12 @@ describe('SmartRate v2 — Redis Fixed Window & Expiration Tests', () => {
 
     const testIp = '10.0.0.3';
 
-    // exhaust get quota
     const getRes = await request(app).get('/api/resource').set('X-Forwarded-For', testIp);
     assert.equal(getRes.status, 200);
 
     const getBlocked = await request(app).get('/api/resource').set('X-Forwarded-For', testIp);
     assert.equal(getBlocked.status, 429);
 
-    // post on same route must be unaffected
     const postRes = await request(app).post('/api/resource').set('X-Forwarded-For', testIp);
     assert.equal(postRes.status, 200);
   });

@@ -56,25 +56,21 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
       const windowMs = 60_000;
       const t0 = 100_000;
 
-      // req 1 at t0 allowed
       const r1 = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 });
       assert.equal(r1.allowed, true);
       assert.equal(r1.count, 1);
       assert.equal(r1.remaining, 2);
 
-      // req 2 at t0 1000 allowed
       const r2 = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 1000 });
       assert.equal(r2.allowed, true);
       assert.equal(r2.count, 2);
       assert.equal(r2.remaining, 1);
 
-      // req 3 at t0 2000 allowed quota exhausted
       const r3 = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 2000 });
       assert.equal(r3.allowed, true);
       assert.equal(r3.count, 3);
       assert.equal(r3.remaining, 0);
 
-      // req 4 at t0 3000 blocked
       const r4 = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: t0 + 3000 });
       assert.equal(r4.allowed, false);
       assert.equal(r4.count, 3);
@@ -88,12 +84,10 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
       const limit = 2;
       const windowMs = 10_000;
 
-      // first request
       store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 10_000 });
-      // second request
+
       store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 15_000 });
 
-      // slot opens up
       const resAt20s = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 20_000 });
       assert.equal(resAt20s.allowed, true);
       assert.equal(resAt20s.count, 2);
@@ -106,10 +100,8 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
       const limit = 1;
       const windowMs = 10_000;
 
-      // first request
       store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 100_000 });
 
-      // second request blocked
       const blocked = store.consume({ key, limit, windowMs, algorithm: 'sliding-window', now: 103_000 });
       assert.equal(blocked.allowed, false);
       assert.equal(blocked.reset, 7);
@@ -136,12 +128,11 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
     it('verifies boundary-burst prevention under tested scenario', () => {
       const store = new MemoryStore();
       const limit = 2;
-      const windowMs = 10_000; // 10 second window
+      const windowMs = 10_000;
 
       const fixedKey = 'burst:fixed';
       const slidingKey = 'burst:sliding';
 
-      // initial request at t 0 to establish the window
       store.consume({ key: fixedKey, limit, windowMs, algorithm: 'fixed-window', now: 0 });
       store.consume({ key: slidingKey, limit, windowMs, algorithm: 'sliding-window', now: 0 });
 
@@ -150,14 +141,12 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
       assert.equal(f2.allowed, true);
       assert.equal(s2.allowed, true);
 
-      // request at 10 001 is allowed req 3 in 501ms
       const f3 = store.consume({ key: fixedKey, limit, windowMs, algorithm: 'fixed-window', now: 10_001 });
       assert.equal(f3.allowed, true, 'Fixed Window allows request right after boundary reset');
 
       const f4 = store.consume({ key: fixedKey, limit, windowMs, algorithm: 'fixed-window', now: 10_002 });
       assert.equal(f4.allowed, true, 'Fixed Window allows full quota burst right after reset');
 
-      // request at 10 001 takes the 2nd slot allowed
       const s3 = store.consume({ key: slidingKey, limit, windowMs, algorithm: 'sliding-window', now: 10_001 });
       assert.equal(s3.allowed, true);
 
@@ -183,18 +172,15 @@ describe('SmartRate v3 — Memory Sliding Window Tests', () => {
 
       const clientIp = '192.168.5.1';
 
-      // req 1
       const res1 = await request(app).get('/api/sliding-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res1.status, 200);
       assert.equal(res1.headers['ratelimit-limit'], '2');
       assert.equal(res1.headers['ratelimit-remaining'], '1');
 
-      // req 2
       const res2 = await request(app).get('/api/sliding-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res2.status, 200);
       assert.equal(res2.headers['ratelimit-remaining'], '0');
 
-      // req 3 blocked
       const res3 = await request(app).get('/api/sliding-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res3.status, 429);
       assert.equal(res3.body.success, false);

@@ -25,7 +25,6 @@ function createAtomicRedisClient() {
             const cutoff = now - windowMs;
             let entries = zsets.get(key) || [];
 
-            // prune expired entries score cutoff
             entries = entries.filter((e) => e.score > cutoff);
 
             const currentCount = entries.length;
@@ -43,7 +42,6 @@ function createAtomicRedisClient() {
             return;
           }
 
-          // fixed window lua execution 1 argument windowms
           const windowMs = Number(options.arguments[0]);
           const now = Date.now();
 
@@ -102,7 +100,6 @@ describe('SmartRate — Concurrency & Atomicity Verification', () => {
 
       const testIp = '10.200.0.1';
 
-      // dispatch 50 concurrent requests in parallel
       const requestPromises = Array.from({ length: TOTAL_REQUESTS }, () =>
         request(app)
           .get('/api/burst-test')

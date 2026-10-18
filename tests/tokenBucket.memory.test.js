@@ -164,29 +164,25 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
       const store = new MemoryStore();
       const key = 'tb:burst:test';
       const capacity = 3;
-      const refillRate = 1; // 1 token per second
+      const refillRate = 1;
       const t0 = 100_000;
 
-      // req 1 at t0 allowed tokens 3 2
       const r1 = store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(r1.allowed, true);
       assert.equal(r1.remaining, 2);
 
-      // req 2 at t0 allowed tokens 2 1
       const r2 = store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(r2.allowed, true);
       assert.equal(r2.remaining, 1);
 
-      // req 3 at t0 allowed tokens 1 0 bucket empty
       const r3 = store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(r3.allowed, true);
       assert.equal(r3.remaining, 0);
 
-      // req 4 at t0 blocked tokens 0 1
       const r4 = store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(r4.allowed, false);
       assert.equal(r4.remaining, 0);
-      assert.equal(r4.retryAfter, 1); // 1 token needed at 1 token sec 1s
+      assert.equal(r4.retryAfter, 1);
     });
 
     it('continuously refills tokens over time based on elapsed milliseconds', () => {
@@ -196,26 +192,23 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
       const refillRate = 2;
       const t0 = 100_000;
 
-      // empty the bucket at t0 5 requests
       for (let i = 0; i < 5; i++) {
         const res = store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
         assert.equal(res.allowed, true);
       }
 
-      // blocked at t0
       const blockedAtT0 = store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(blockedAtT0.allowed, false);
 
       const t1 = t0 + 1_000;
       const res1 = store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t1 });
       assert.equal(res1.allowed, true);
-      assert.equal(res1.remaining, 1); // 2 1 1 token left
+      assert.equal(res1.remaining, 1);
 
       const res2 = store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t1 });
       assert.equal(res2.allowed, true);
-      assert.equal(res2.remaining, 0); // 1 1 0 tokens left
+      assert.equal(res2.remaining, 0);
 
-      // 3rd request at t1 must be blocked
       const res3 = store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t1 });
       assert.equal(res3.allowed, false);
       assert.equal(res3.remaining, 0);
@@ -225,16 +218,13 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
       const store = new MemoryStore();
       const key = 'tb:cap:test';
       const capacity = 4;
-      const refillRate = 10; // 10 tokens per second
+      const refillRate = 10;
       const t0 = 10_000;
 
-      // initial request consumes 1 token tokens 4 3
       store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
 
-      // advance 1 hour into the future 3 600 000ms
       const tFuture = t0 + 3_600_000;
 
-      // tokens must be capped at capacity 4
       for (let i = 0; i < 4; i++) {
         const res = store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: tFuture });
         assert.equal(res.allowed, true, `Request ${i + 1} should be allowed up to capacity`);
@@ -252,7 +242,6 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
       const refillIntervalMs = 60_000;
       const t0 = 100_000;
 
-      // drain all 5 tokens at t0
       for (let i = 0; i < 5; i++) {
         const res = store.consume({
           key,
@@ -265,7 +254,6 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
         assert.equal(res.allowed, true);
       }
 
-      // blocked at t0
       const blockedT0 = store.consume({
         key,
         capacity,
@@ -305,18 +293,14 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
       const store = new MemoryStore();
       const key = 'tb:retryafter:test';
       const capacity = 10;
-      const refillRate = 2; // 2 tokens sec
+      const refillRate = 2;
       const refillIntervalMs = 1000;
       const t0 = 100_000;
 
-      // drain all 10 tokens at t0
       for (let i = 0; i < 10; i++) {
         store.consume({ key, capacity, refillRate, refillIntervalMs, algorithm: 'token-bucket', now: t0 });
       }
 
-      // 8 tokens at 0 002 tokens ms requires 400ms
-      // in seconds ceil 400 1000 1 second
-      // full bucket refill would have been 9 8 2 5 seconds
       const t100 = t0 + 100;
       const blockedRes = store.consume({
         key,
@@ -336,10 +320,9 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
       const store = new MemoryStore();
       const key = 'tb:weighted:test';
       const capacity = 10;
-      const refillRate = 2; // 2 tokens sec
+      const refillRate = 2;
       const t0 = 50_000;
 
-      // heavy request 1 cost 6 tokens 10 4
       const r1 = store.consume({ key, capacity, refillRate, cost: 6, algorithm: 'token-bucket', now: t0 });
       assert.equal(r1.allowed, true);
       assert.equal(r1.remaining, 4);
@@ -350,7 +333,6 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
       assert.equal(r2.retryAfter, 1);
       assert.equal(r2.reset, 1);
 
-      // light request cost 2 tokens 4 2 allowed
       const r3 = store.consume({ key, capacity, refillRate, cost: 2, algorithm: 'token-bucket', now: t0 });
       assert.equal(r3.allowed, true);
       assert.equal(r3.remaining, 2);
@@ -364,13 +346,11 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
       const refillRate = 1;
       const t0 = 10_000;
 
-      // exhaust alice s bucket
       store.consume({ key: keyA, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       store.consume({ key: keyA, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       const blockedAlice = store.consume({ key: keyA, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(blockedAlice.allowed, false);
 
-      // bob s bucket must remain completely full
       const bobRes1 = store.consume({ key: keyB, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(bobRes1.allowed, true);
       assert.equal(bobRes1.remaining, 1);
@@ -383,13 +363,12 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
       const refillRate = 1;
       const t0 = 10_000;
 
-      // consume 1 token at t0
       store.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
 
       const notEvicted = store.cleanupExpiredRecords(t0 + 1_000);
       assert.equal(notEvicted, 0);
 
-      const fullTimeMs = (1 / 1) * 1000; // 1s to refill 1 token
+      const fullTimeMs = (1 / 1) * 1000;
       const tIdle = t0 + fullTimeMs + 65_000;
       const evicted = store.cleanupExpiredRecords(tIdle);
       assert.equal(evicted, 1);
@@ -412,24 +391,20 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
 
       const clientIp = '192.168.99.1';
 
-      // req 1 allowed remaining 2
       const res1 = await request(app).get('/api/token-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res1.status, 200);
       assert.equal(res1.headers['ratelimit-limit'], '3');
       assert.equal(res1.headers['ratelimit-remaining'], '2');
       assert.ok(Number(res1.headers['ratelimit-reset']) > 0);
 
-      // req 2 allowed remaining 1
       const res2 = await request(app).get('/api/token-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res2.status, 200);
       assert.equal(res2.headers['ratelimit-remaining'], '1');
 
-      // req 3 allowed remaining 0
       const res3 = await request(app).get('/api/token-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res3.status, 200);
       assert.equal(res3.headers['ratelimit-remaining'], '0');
 
-      // req 4 blocked 429
       const res4 = await request(app).get('/api/token-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res4.status, 429);
       assert.equal(res4.body.success, false);
@@ -453,13 +428,12 @@ describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => 
 
       const clientIp = '192.168.99.2';
 
-      // send expensive operation costing 8 tokens
       const resHeavy = await request(app)
         .post('/api/operations')
         .set('X-Forwarded-For', clientIp)
         .set('X-Operation-Cost', '8');
       assert.equal(resHeavy.status, 200);
-      assert.equal(resHeavy.headers['ratelimit-remaining'], '2'); // 10 8 2 tokens left
+      assert.equal(resHeavy.headers['ratelimit-remaining'], '2');
 
       const resBlocked = await request(app)
         .post('/api/operations')

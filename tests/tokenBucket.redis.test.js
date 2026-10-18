@@ -92,28 +92,23 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       const refillRate = 1;
       const t0 = 100_000;
 
-      // req 1 at t0 allowed tokens 3 2
       const r1 = await redisStore.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(r1.allowed, true);
       assert.equal(r1.remaining, 2);
 
-      // req 2 at t0 allowed tokens 2 1
       const r2 = await redisStore.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(r2.allowed, true);
       assert.equal(r2.remaining, 1);
 
-      // req 3 at t0 allowed tokens 1 0
       const r3 = await redisStore.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(r3.allowed, true);
       assert.equal(r3.remaining, 0);
 
-      // req 4 at t0 blocked 429
       const r4 = await redisStore.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       assert.equal(r4.allowed, false);
       assert.equal(r4.remaining, 0);
       assert.equal(r4.retryAfter, 1);
 
-      // verify redis hash state
       const hash = redisClient.getHash(key);
       assert.ok(hash, 'Redis Hash must exist');
       assert.equal(hash.tokens, 0);
@@ -126,15 +121,13 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
 
       const key = 'smartrate:token-bucket:GET:/redis-refill:10.0.0.2';
       const capacity = 5;
-      const refillRate = 2; // 2 tokens sec
+      const refillRate = 2;
       const t0 = 100_000;
 
-      // drain all 5 tokens at t0
       for (let i = 0; i < 5; i++) {
         await redisStore.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
       }
 
-      // advance 1 000ms exactly 2 0 tokens refilled
       const t1 = t0 + 1_000;
       const res1 = await redisStore.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t1 });
       assert.equal(res1.allowed, true);
@@ -144,7 +137,6 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       assert.equal(res2.allowed, true);
       assert.equal(res2.remaining, 0);
 
-      // 3rd request blocked
       const res3 = await redisStore.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t1 });
       assert.equal(res3.allowed, false);
       assert.equal(res3.remaining, 0);
@@ -159,10 +151,8 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       const refillRate = 10;
       const t0 = 10_000;
 
-      // consume 1 token at t0
       await redisStore.consume({ key, capacity, refillRate, algorithm: 'token-bucket', now: t0 });
 
-      // advance 24 hours into the future
       const tFuture = t0 + 86_400_000;
 
       for (let i = 0; i < 4; i++) {
@@ -200,7 +190,6 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       const refillIntervalMs = 60_000;
       const t0 = 100_000;
 
-      // drain all 5 tokens at t0
       for (let i = 0; i < 5; i++) {
         const res = await redisStore.consume({
           key,
@@ -213,7 +202,6 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
         assert.equal(res.allowed, true);
       }
 
-      // blocked at t0
       const blocked = await redisStore.consume({
         key,
         capacity,
@@ -254,11 +242,10 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
 
       const key = 'smartrate:token-bucket:GET:/redis-smart-retry:10.0.0.6';
       const capacity = 10;
-      const refillRate = 2; // 2 tokens sec
+      const refillRate = 2;
       const refillIntervalMs = 1000;
       const t0 = 100_000;
 
-      // drain all 10 tokens
       for (let i = 0; i < 10; i++) {
         await redisStore.consume({
           key,
@@ -270,7 +257,6 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
         });
       }
 
-      // waitms 0 8 0 002 400ms ceil 400 1000 1 second
       const t100 = t0 + 100;
       const blockedRes = await redisStore.consume({
         key,
@@ -295,10 +281,9 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       const refillRate = 1;
       const t0 = 10_000;
 
-      // heavy request costing 7 tokens
       const rHeavy = await redisStore.consume({ key, capacity, refillRate, cost: 7, algorithm: 'token-bucket', now: t0 });
       assert.equal(rHeavy.allowed, true);
-      assert.equal(rHeavy.remaining, 3); // 10 7 3 tokens left
+      assert.equal(rHeavy.remaining, 3);
 
       const rBlocked = await redisStore.consume({ key, capacity, refillRate, cost: 5, algorithm: 'token-bucket', now: t0 });
       assert.equal(rBlocked.allowed, false);
@@ -306,7 +291,6 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       assert.equal(rBlocked.retryAfter, 2);
       assert.equal(rBlocked.reset, 2);
 
-      // light request needing 2 tokens allowed
       const rLight = await redisStore.consume({ key, capacity, refillRate, cost: 2, algorithm: 'token-bucket', now: t0 });
       assert.equal(rLight.allowed, true);
       assert.equal(rLight.remaining, 1);

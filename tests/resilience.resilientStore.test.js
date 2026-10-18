@@ -115,7 +115,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
 
       const params = { key: 'test', limit: 5, windowMs: 1000 };
       await resilient.consume(params);
-      await resilient.consume(params); // trips breaker
+      await resilient.consume(params);
 
       assert.ok(events.includes('state:OPEN'));
       assert.ok(events.includes('open'));
@@ -213,7 +213,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
 
       const resilient = new ResilientStore({
         primaryStore: primaryMock,
-        timeoutMs: 25 // short timeout triggers timeout guard
+        timeoutMs: 25
       });
 
       const startTime = Date.now();
@@ -249,7 +249,6 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
 
       const params = { key: 'client-trip', limit: 10, windowMs: 60000 };
 
-      // 1st 2nd 3rd failures trip breaker
       await resilient.consume(params);
       await resilient.consume(params);
       await resilient.consume(params);
@@ -286,19 +285,16 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
       const limit = 3;
       const params = { key: 'abuse-client', limit, windowMs: 60000 };
 
-      // request 1 allowed remaining 2
       const r1 = await resilient.consume(params);
       assert.equal(r1.allowed, true);
       assert.equal(r1.remaining, 2);
       assert.equal(r1.degraded, true);
 
-      // request 2 allowed remaining 1
       const r2 = await resilient.consume(params);
       assert.equal(r2.allowed, true);
       assert.equal(r2.remaining, 1);
       assert.equal(r2.degraded, true);
 
-      // request 3 allowed remaining 0
       const r3 = await resilient.consume(params);
       assert.equal(r3.allowed, true);
       assert.equal(r3.remaining, 0);
@@ -349,12 +345,11 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
       const resilient = new ResilientStore({
         primaryStore: primaryMock,
         failureThreshold: 2,
-        resetTimeoutMs: 60 // 60ms cooldown
+        resetTimeoutMs: 60
       });
 
       const params = { key: 'canary-client', limit: 10, windowMs: 60000 };
 
-      // fail twice to trip circuit to open
       await resilient.consume(params);
       await resilient.consume(params);
       assert.equal(resilient.circuitBreaker.getState(), CIRCUIT_STATE.OPEN);
@@ -364,10 +359,8 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
       assert.equal(preCooldown.degraded, true);
       assert.equal(primaryCalls, 2);
 
-      // wait for cooldown to expire
       await new Promise((resolve) => setTimeout(resolve, 80));
 
-      // redis is now healed
       isRedisAlive = true;
 
       let probeEventFired = false;
@@ -406,7 +399,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
           if (!isRedisAlive) {
             throw new Error('Redis down');
           }
-          // hold the canary probe pending
+
           return new Promise((resolve) => {
             resolveCanary = () => resolve({ allowed: true, limit: 10, remaining: 8, reset: 60, retryAfter: 0 });
           });
@@ -421,7 +414,6 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
 
       const params = { key: 'concurrent-canary', limit: 10, windowMs: 60000 };
 
-      // trip to open
       await resilient.consume(params);
       await resilient.consume(params);
       assert.equal(resilient.circuitBreaker.getState(), CIRCUIT_STATE.OPEN);
@@ -441,7 +433,6 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
       assert.equal(conc2.fallbackUsed, true);
       assert.equal(primaryCalls, 3);
 
-      // now resolve the canary probe
       resolveCanary();
       const canaryRes = await canaryPromise;
 
@@ -465,14 +456,12 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
 
       const params = { key: 'probe-fail', limit: 10, windowMs: 60000 };
 
-      // trip to open
       await resilient.consume(params);
       await resilient.consume(params);
       assert.equal(resilient.circuitBreaker.getState(), CIRCUIT_STATE.OPEN);
 
       await new Promise((resolve) => setTimeout(resolve, 60));
 
-      // canary runs and fails
       const res = await resilient.consume(params);
       assert.equal(res.degraded, true);
       assert.equal(resilient.circuitBreaker.getState(), CIRCUIT_STATE.OPEN);
@@ -572,14 +561,12 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
         res.json({ success: true });
       });
 
-      // healthy request
       const resHealthy = await request(app).get('/api/test');
       assert.equal(resHealthy.status, 200);
       assert.equal(resHealthy.headers['ratelimit-degraded'], undefined);
       assert.equal(resHealthy.headers['ratelimit-limit'], '5');
       assert.equal(resHealthy.headers['ratelimit-remaining'], '4');
 
-      // outage begins
       redisHealthy = false;
 
       const resOutage = await request(app).get('/api/test');
@@ -591,7 +578,6 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
       assert.equal(capturedRateLimitMeta.store, 'fallback');
       assert.equal(capturedRateLimitMeta.primaryError, 'Error');
 
-      // fallback quota enforcement in express limit 5
       await request(app).get('/api/test');
       await request(app).get('/api/test');
       await request(app).get('/api/test');
@@ -629,19 +615,16 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
       );
       app.get('/api/shorthand', (req, res) => res.json({ ok: true, degraded: req.rateLimit?.degraded }));
 
-      // initial healthy request
       const r1 = await request(app).get('/api/shorthand');
       assert.equal(r1.status, 200);
       assert.equal(r1.headers['ratelimit-degraded'], undefined);
 
-      // redis fails
       redisHealthy = false;
       const r2 = await request(app).get('/api/shorthand');
       assert.equal(r2.status, 200);
       assert.equal(r2.headers['ratelimit-degraded'], 'true');
       assert.equal(r2.body.degraded, true);
 
-      // redis recovers after cooldown
       await new Promise((resolve) => setTimeout(resolve, 100));
       redisHealthy = true;
 
@@ -671,7 +654,6 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
       );
       app.get('/api/tokens', (req, res) => res.json({ ok: true }));
 
-      // 3 requests consume capacity
       const r1 = await request(app).get('/api/tokens');
       const r2 = await request(app).get('/api/tokens');
       const r3 = await request(app).get('/api/tokens');

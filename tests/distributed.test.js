@@ -42,7 +42,6 @@ function createSharedRedisClient() {
             return;
           }
 
-          // fixed window lua execution 1 argument windowms
           const windowMs = Number(options.arguments[0]);
           const now = Date.now();
 
@@ -88,28 +87,22 @@ describe('SmartRate v2 — Distributed Multi-Instance Verification (Fixed Window
 
     const clientIp = '192.168.1.100';
 
-    // interleave requests between app a and app b
-    // req 1 app a
     const res1 = await request(appA).get('/api/resource').set('X-Forwarded-For', clientIp);
     assert.equal(res1.status, 200);
     assert.equal(res1.headers['ratelimit-remaining'], '4');
 
-    // req 2 app b
     const res2 = await request(appB).get('/api/resource').set('X-Forwarded-For', clientIp);
     assert.equal(res2.status, 200);
     assert.equal(res2.headers['ratelimit-remaining'], '3');
 
-    // req 3 app a
     const res3 = await request(appA).get('/api/resource').set('X-Forwarded-For', clientIp);
     assert.equal(res3.status, 200);
     assert.equal(res3.headers['ratelimit-remaining'], '2');
 
-    // req 4 app b
     const res4 = await request(appB).get('/api/resource').set('X-Forwarded-For', clientIp);
     assert.equal(res4.status, 200);
     assert.equal(res4.headers['ratelimit-remaining'], '1');
 
-    // req 5 app a final allowed request
     const res5 = await request(appA).get('/api/resource').set('X-Forwarded-For', clientIp);
     assert.equal(res5.status, 200);
     assert.equal(res5.headers['ratelimit-remaining'], '0');
@@ -132,13 +125,11 @@ describe('SmartRate v2 — Distributed Multi-Instance Verification (Fixed Window
     const clientA = '172.20.0.1';
     const clientB = '172.20.0.2';
 
-    // exhaust client a s quota using app a
     await request(appA).get('/api/resource').set('X-Forwarded-For', clientA);
     await request(appA).get('/api/resource').set('X-Forwarded-For', clientA);
     const blockedA = await request(appB).get('/api/resource').set('X-Forwarded-For', clientA);
     assert.equal(blockedA.status, 429);
 
-    // client b accessing app b must have a fresh quota
     const resB1 = await request(appB).get('/api/resource').set('X-Forwarded-For', clientB);
     assert.equal(resB1.status, 200);
     assert.equal(resB1.headers['ratelimit-remaining'], '1');
@@ -164,23 +155,19 @@ describe('SmartRate v3 — Distributed Multi-Instance Verification (Sliding Wind
 
     const clientIp = '10.50.1.10';
 
-    // request 1 app a
     const res1 = await request(appA).get('/api/resource').set('X-Forwarded-For', clientIp);
     assert.equal(res1.status, 200);
     assert.equal(res1.headers['ratelimit-limit'], String(LIMIT));
     assert.equal(res1.headers['ratelimit-remaining'], '3');
 
-    // request 2 app b
     const res2 = await request(appB).get('/api/resource').set('X-Forwarded-For', clientIp);
     assert.equal(res2.status, 200);
     assert.equal(res2.headers['ratelimit-remaining'], '2');
 
-    // request 3 app a
     const res3 = await request(appA).get('/api/resource').set('X-Forwarded-For', clientIp);
     assert.equal(res3.status, 200);
     assert.equal(res3.headers['ratelimit-remaining'], '1');
 
-    // request 4 app b last allowed request
     const res4 = await request(appB).get('/api/resource').set('X-Forwarded-For', clientIp);
     assert.equal(res4.status, 200);
     assert.equal(res4.headers['ratelimit-remaining'], '0');
@@ -192,7 +179,6 @@ describe('SmartRate v3 — Distributed Multi-Instance Verification (Sliding Wind
     assert.ok(Number(res5.headers['ratelimit-reset']) > 0);
     assert.ok(Number(res5.headers['retry-after']) > 0);
 
-    // request 6 app b also blocked 429
     const res6 = await request(appB).get('/api/resource').set('X-Forwarded-For', clientIp);
     assert.equal(res6.status, 429);
     assert.equal(res6.body.success, false);
@@ -217,14 +203,12 @@ describe('SmartRate v3 — Distributed Multi-Instance Verification (Sliding Wind
     const clientA = '10.50.2.1';
     const clientB = '10.50.2.2';
 
-    // exhaust client a across app a and app b
     await request(appA).get('/api/resource').set('X-Forwarded-For', clientA);
     await request(appB).get('/api/resource').set('X-Forwarded-For', clientA);
 
     const blockedA = await request(appA).get('/api/resource').set('X-Forwarded-For', clientA);
     assert.equal(blockedA.status, 429);
 
-    // client b must retain full independent quota
     const resB1 = await request(appB).get('/api/resource').set('X-Forwarded-For', clientB);
     assert.equal(resB1.status, 200);
     assert.equal(resB1.headers['ratelimit-remaining'], '1');
