@@ -43,7 +43,7 @@ app.get(
 
 app.get('/', (req, res) => {
   res.json({
-    title: 'SmartRate v5 — Token Bucket + Burst Control Demo',
+    title: 'RateShield v5 — Token Bucket + Burst Control Demo',
     description: 'Demonstrates burst tolerance combined with continuous, smooth rate-limiting refill.',
     configuration: {
       algorithm: 'token-bucket',
@@ -65,7 +65,7 @@ app.get('/', (req, res) => {
 
 const server = app.listen(PORT, async () => {
   console.log(`\n=============================================================`);
-  console.log(`🚀 SmartRate v5 — Token Bucket & Burst Control Demo`);
+  console.log(`🚀 RateShield v5 — Token Bucket & Burst Control Demo`);
   console.log(`📡 Server listening on http://localhost:${PORT}`);
   console.log(`⚙️  Policy: Capacity = ${BURST_CAPACITY} tokens, Refill = ${REFILL_RATE} token / ${REFILL_INTERVAL_MS}ms`);
   console.log(`=============================================================\n`);

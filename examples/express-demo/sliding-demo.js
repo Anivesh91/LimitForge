@@ -49,7 +49,7 @@ app.get(
 
 app.get('/', (req, res) => {
   res.json({
-    title: 'SmartRate v3 — Algorithm Comparison Demo',
+    title: 'RateShield v3 — Algorithm Comparison Demo',
     endpoints: [
       {
         path: '/api/fixed',
@@ -75,7 +75,7 @@ export function startDemoServer(port = PORT) {
   return new Promise((resolve) => {
     server = app.listen(port, () => {
       console.log(`\n======================================================`);
-      console.log(`SmartRate v3 Comparison Demo running at http://localhost:${port}`);
+      console.log(`RateShield v3 Comparison Demo running at http://localhost:${port}`);
       console.log(`======================================================`);
       console.log(`[Fixed Window]   GET http://localhost:${port}/api/fixed   (5 req / 10s)`);
       console.log(`[Sliding Window] GET http://localhost:${port}/api/sliding (5 req / 10s)`);

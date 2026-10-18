@@ -4,7 +4,7 @@ import { runBenchmark } from '../src/benchmark/benchmarkRunner.js';
 
 async function main() {
   console.log('================================================================================');
-  console.log('   SmartRate V7 — High-Precision Performance & Overhead Benchmark');
+  console.log('   RateShield V7 — High-Precision Performance & Overhead Benchmark');
   console.log('================================================================================');
   console.log(`Node.js:  ${process.version}`);
   console.log(`Platform: ${process.platform} (${process.arch})`);

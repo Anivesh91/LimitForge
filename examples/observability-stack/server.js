@@ -140,7 +140,7 @@ app.post('/api/chaos/break-store', checkChaosAllowed, (req, res) => {
   chaosActive = true;
   res.json({
     status: 'chaos_activated',
-    message: 'Primary store failing now. SmartRate will switch to fallback memory and trip circuit breaker.'
+    message: 'Primary store failing now. RateShield will switch to fallback memory and trip circuit breaker.'
   });
 });
 
@@ -172,7 +172,7 @@ app.use((err, req, res, next) => {
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log('================================================================================');
-    console.log('   SmartRate V7 — Production Observability Demo Stack');
+    console.log('   RateShield V7 — Production Observability Demo Stack');
     console.log('================================================================================');
     console.log(`• Express Server:       http://localhost:${PORT}`);
     console.log(`• Prometheus Metrics:   http://localhost:${PORT}/metrics`);

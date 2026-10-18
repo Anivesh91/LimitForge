@@ -78,16 +78,16 @@ app.post(
 // 4. Native Prometheus Scrape Endpoint (Zero External Dependencies)
 app.get('/metrics', createPrometheusExporter());
 
-app.listen(3000, () => console.log('SmartRate listening on http://localhost:3000'));
+app.listen(3000, () => console.log('RateShield listening on http://localhost:3000'));
 ```
 
 Start Redis before running this example. Once the server is running, stopping Redis demonstrates the configured fallback behavior; start it again to observe recovery.
 
 ---
 
-## What's New in SmartRate v7 (Observability & Performance)
+## What's New in RateShield v7 (Observability & Performance)
 
-SmartRate v7 answers the core production question: **"What is SmartRate doing in production, and how can developers observe its health and performance?"**
+RateShield v7 answers the core production question: **"What is RateShield doing in production, and how can developers observe its health and performance?"**
 
 * **Zero-Dependency Native Prometheus Exposition (`/metrics`)**:
   - Exposes metrics adhering strictly to the Prometheus text exposition format (v0.0.4) without requiring `prom-client` or any third-party runtime package.
@@ -110,9 +110,9 @@ SmartRate v7 answers the core production question: **"What is SmartRate doing in
 
 ---
 
-## What's New in SmartRate v6
+## What's New in RateShield v6
 
-SmartRate v6 solves the most critical operational failure mode of distributed rate limiting: **What happens when Redis or the central store becomes unavailable, slow, or network-partitioned?**
+RateShield v6 solves the most critical operational failure mode of distributed rate limiting: **What happens when Redis or the central store becomes unavailable, slow, or network-partitioned?**
 
 * **Store Timeout Guard (`timeoutMs`, `withTimeout`, `StoreTimeoutError`)**:
   - Enforces bounded operation latency on all store calls.
@@ -146,7 +146,7 @@ SmartRate v6 solves the most critical operational failure mode of distributed ra
 
 ```mermaid
 flowchart TD
-    Req([Incoming HTTP Request]) --> Limiter[SmartRate Middleware]
+    Req([Incoming HTTP Request]) --> Limiter[RateShield Middleware]
     Limiter --> BreakerCheck{Circuit Breaker State?}
 
     BreakerCheck -->|"CLOSED (Normal)"| RunPrimary[Call primaryStore with timeoutMs Guard]
@@ -272,7 +272,7 @@ docker-compose -f examples/observability-stack/docker-compose.yml up -d
 node examples/observability-stack/simulate-traffic.js
 ```
 Automated end-to-end observability stack featuring:
-- **SmartRate Express App**: `http://localhost:3000` with ResilientStore and `/metrics`.
+- **RateShield Express App**: `http://localhost:3000` with ResilientStore and `/metrics`.
 - **Prometheus Scraper**: `http://localhost:9090` evaluating production alerting rules.
 - **Grafana Dashboard**: `http://localhost:3001` (admin / admin) with live throughput, block rate, latency, and breaker state.
 - **Live Chaos Injection**: Real-time store failure (`POST /api/chaos/break-store`), degraded memory fallback, circuit tripping, and canary probe recovery (`POST /api/chaos/heal-store`).
@@ -438,7 +438,7 @@ npm test
   - **ResilientStore Outage Observability**: Automatically increments `smartrate_store_errors_total{store="redis"}` and records span exceptions when primary store operations fail or time out during fallback.
   - **OpenTelemetry Standard Semantic Conventions**: Enriches spans with `ratelimit.allowed`, `ratelimit.remaining`, `ratelimit.reset`, `ratelimit.algorithm`, `ratelimit.store`, and `ratelimit.degraded`. Creates child spans via `startSpan('smartrate.consume')` when tracer is configured.
   - **Production Grafana & Prometheus Assets**: Full Alertmanager rules (`assets/alerts/prometheus-rules.yml`) and pre-built Grafana dashboard (`assets/dashboards/smartrate-grafana-dashboard.json`).
-  - **Production Observability Stack**: Complete Docker Compose setup with Prometheus, Grafana, Redis, and SmartRate, paired with an automated multi-stage traffic simulator (`examples/observability-stack/`).
+  - **Production Observability Stack**: Complete Docker Compose setup with Prometheus, Grafana, Redis, and RateShield, paired with an automated multi-stage traffic simulator (`examples/observability-stack/`).
   - **Security & Identity Hardening**: Defensive clamping of client identifiers to 256 characters (`MAX_IDENTIFIER_LENGTH = 256`) and optional cryptographic SHA-256 hashing (`hashClientIdentifier: true`) to mask raw API tokens in Redis storage.
   - **Nanosecond Benchmarks**: Realistic, empirical overhead measurement (`npm run benchmark`) using `process.hrtime.bigint()`.
 * **v8.0.0 (Release & Production Hardening)**:
