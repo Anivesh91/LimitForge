@@ -17,19 +17,19 @@ if (REDIS_URL) {
   try {
     redisClient = createClient({ url: REDIS_URL });
     redisClient.on('error', (err) => {
-      console.warn('[RateShield Demo] Redis connection warning:', err.message);
+      console.warn('[LimitForge Demo] Redis connection warning:', err.message);
     });
     await redisClient.connect().catch((err) => {
-      console.warn('[RateShield Demo] Redis unreachable, falling back to MemoryStore:', err.message);
+      console.warn('[LimitForge Demo] Redis unreachable, falling back to MemoryStore:', err.message);
       redisClient = null;
     });
 
     if (redisClient && redisClient.isOpen) {
       sharedStore = new RedisStore({ client: redisClient });
-      console.log(`[RateShield Demo] Connected to Redis at ${REDIS_URL} (Distributed Rate Limiting Active)`);
+      console.log(`[LimitForge Demo] Connected to Redis at ${REDIS_URL} (Distributed Rate Limiting Active)`);
     }
   } catch (err) {
-    console.warn('[RateShield Demo] Redis initialization failed, using MemoryStore fallback:', err.message);
+    console.warn('[LimitForge Demo] Redis initialization failed, using MemoryStore fallback:', err.message);
   }
 }
 

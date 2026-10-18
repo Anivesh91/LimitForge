@@ -1,4 +1,4 @@
-name: RateShield CI
+name: LimitForge CI
 
 on:
   push:
