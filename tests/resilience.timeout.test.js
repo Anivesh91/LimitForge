@@ -267,7 +267,6 @@ describe('SmartRate v6 — Day 1: Store Timeout & Failure Policies', () => {
         (req, res) => res.json({ ok: true })
       );
 
-      // standard express 500 error handler
       app.use((err, req, res, next) => {
         res.status(500).json({ custom500: true, error: err.message });
       });

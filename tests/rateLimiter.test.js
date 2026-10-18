@@ -190,7 +190,6 @@ describe('SmartRate v1 — Test Suite', () => {
       const res2 = await request(app).get('/test-expiry').set('X-Forwarded-For', testIp);
       assert.equal(res2.status, 429);
 
-      // wait 120ms for window to elapse
       await new Promise((resolve) => setTimeout(resolve, 120));
 
       const res3 = await request(app).get('/test-expiry').set('X-Forwarded-For', testIp);
@@ -270,7 +269,6 @@ describe('SmartRate v1 — Test Suite', () => {
         (req, res) => res.json({ success: true })
       );
 
-      // express error handling middleware
       app.use((err, req, res, next) => {
         res.status(500).json({ error: err.message });
       });

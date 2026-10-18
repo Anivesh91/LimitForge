@@ -48,8 +48,6 @@ function createDistributedRedisClient(hashes = new Map(), queueRef = { current: 
 
           hashes.set(key, { tokens: currentTokens, lastRefill });
 
-          // option c ratelimit reset
-          // allowed time to full capacity
           let reset;
           if (allowed === 1) {
             const timeToFullMs = Math.max(0, (capacity - currentTokens) / refillPerMs);
@@ -90,7 +88,6 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
       const refillIntervalMs = 1000;
       const t0 = 500_000;
 
-      // consume 4 tokens from both stores remaining 6
       const memRes = memoryStore.consume({
         key: 'tb:parity:allowed',
         capacity,
@@ -130,17 +127,15 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
       const redisStore = new RedisStore({ client: redisClient });
 
       const capacity = 3;
-      const refillRate = 1; // 1 token sec
+      const refillRate = 1;
       const refillIntervalMs = 1000;
       const t0 = 100_000;
 
-      // drain all 3 tokens
       for (let i = 0; i < 3; i++) {
         memoryStore.consume({ key: 'tb:parity:blocked', capacity, refillRate, refillIntervalMs, algorithm: 'token-bucket', now: t0 });
         await redisStore.consume({ key: 'tb:parity:blocked', capacity, refillRate, refillIntervalMs, algorithm: 'token-bucket', now: t0 });
       }
 
-      // wait time 1s retryafter 1 reset 1
       const memBlocked = memoryStore.consume({
         key: 'tb:parity:blocked',
         capacity,
@@ -194,20 +189,17 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
 
       const clientIp = '10.0.0.1';
 
-      // request 1 allowed rem 1
       const resMem1 = await request(appMem).get('/api/test').set('X-Forwarded-For', clientIp);
       const resRedis1 = await request(appRedis).get('/api/test').set('X-Forwarded-For', clientIp);
       assert.equal(resMem1.headers['ratelimit-limit'], resRedis1.headers['ratelimit-limit']);
       assert.equal(resMem1.headers['ratelimit-remaining'], resRedis1.headers['ratelimit-remaining']);
       assert.equal(resMem1.headers['ratelimit-reset'], resRedis1.headers['ratelimit-reset']);
 
-      // request 2 allowed rem 0
       const resMem2 = await request(appMem).get('/api/test').set('X-Forwarded-For', clientIp);
       const resRedis2 = await request(appRedis).get('/api/test').set('X-Forwarded-For', clientIp);
       assert.equal(resMem2.headers['ratelimit-remaining'], '0');
       assert.equal(resRedis2.headers['ratelimit-remaining'], '0');
 
-      // request 3 blocked http 429
       const resMem3 = await request(appMem).get('/api/test').set('X-Forwarded-For', clientIp);
       const resRedis3 = await request(appRedis).get('/api/test').set('X-Forwarded-For', clientIp);
 
@@ -255,33 +247,27 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
 
       const clientIp = '198.51.100.42';
 
-      // req 1 app a
       const res1 = await request(appA).get('/api/shared').set('X-Forwarded-For', clientIp);
       assert.equal(res1.status, 200);
       assert.equal(res1.headers['ratelimit-remaining'], '3');
 
-      // req 2 app b
       const res2 = await request(appB).get('/api/shared').set('X-Forwarded-For', clientIp);
       assert.equal(res2.status, 200);
       assert.equal(res2.headers['ratelimit-remaining'], '2');
 
-      // req 3 app a
       const res3 = await request(appA).get('/api/shared').set('X-Forwarded-For', clientIp);
       assert.equal(res3.status, 200);
       assert.equal(res3.headers['ratelimit-remaining'], '1');
 
-      // req 4 app b last token consumed
       const res4 = await request(appB).get('/api/shared').set('X-Forwarded-For', clientIp);
       assert.equal(res4.status, 200);
       assert.equal(res4.headers['ratelimit-remaining'], '0');
 
-      // req 5 app a is blocked with 429
       const res5 = await request(appA).get('/api/shared').set('X-Forwarded-For', clientIp);
       assert.equal(res5.status, 429);
       assert.equal(res5.headers['ratelimit-remaining'], '0');
       assert.ok(Number(res5.headers['retry-after']) >= 1);
 
-      // req 6 app b is also blocked with 429
       const res6 = await request(appB).get('/api/shared').set('X-Forwarded-For', clientIp);
       assert.equal(res6.status, 429);
       assert.equal(res6.headers['ratelimit-remaining'], '0');
@@ -311,7 +297,6 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
 
       const sharedNatIp = '198.51.100.99';
 
-      // alice drains her bucket
       await request(app).get('/api/profile').set('X-Forwarded-For', sharedNatIp).set('X-User-Id', 'alice');
       await request(app).get('/api/profile').set('X-Forwarded-For', sharedNatIp).set('X-User-Id', 'alice');
       const aliceBlocked = await request(app).get('/api/profile').set('X-Forwarded-For', sharedNatIp).set('X-User-Id', 'alice');
@@ -335,13 +320,11 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
         (req, res) => res.json({ data: 'ok' })
       );
 
-      // key 1 exhausted
       await request(app).get('/api/v1/data').set('X-Api-Key', 'key_alpha');
       await request(app).get('/api/v1/data').set('X-Api-Key', 'key_alpha');
       const key1Blocked = await request(app).get('/api/v1/data').set('X-Api-Key', 'key_alpha');
       assert.equal(key1Blocked.status, 429);
 
-      // key 2 has full quota
       const key2Allowed = await request(app).get('/api/v1/data').set('X-Api-Key', 'key_beta');
       assert.equal(key2Allowed.status, 200);
       assert.equal(key2Allowed.headers['ratelimit-remaining'], '1');
@@ -365,7 +348,6 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
         (req, res) => res.json({ ok: true })
       );
 
-      // tenant 1 user 1 exhausted
       await request(app).get('/api/tenant-resource').set('X-Tenant-Id', 'tenant_1').set('X-User-Id', 'usr_1');
       await request(app).get('/api/tenant-resource').set('X-Tenant-Id', 'tenant_1').set('X-User-Id', 'usr_1');
       const t1u1Blocked = await request(app).get('/api/tenant-resource').set('X-Tenant-Id', 'tenant_1').set('X-User-Id', 'usr_1');
@@ -387,7 +369,7 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
           keyGenerator: (req) => {
             if (req.headers['x-null']) return null;
             if (req.headers['x-empty']) return '   ';
-            return req.headers['x-api-key']; // undefined if missing
+            return req.headers['x-api-key'];
           }
         }),
         (req, res) => res.json({ ok: true })
@@ -399,7 +381,6 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
       assert.equal(res1.status, 200);
       assert.equal(res1.headers['ratelimit-remaining'], '1');
 
-      // request with explicit null falls back to clientip
       const res2 = await request(app).get('/api/fallback').set('X-Forwarded-For', clientIp).set('X-Null', 'true');
       assert.equal(res2.status, 200);
       assert.equal(res2.headers['ratelimit-remaining'], '0');
@@ -424,7 +405,6 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
         (req, res) => res.json({ ok: true })
       );
 
-      // custom error handler to catch next err
       app.use((err, req, res, next) => {
         res.status(500).json({ error: err.message });
       });
@@ -451,17 +431,14 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
 
       const clientIp = '10.200.0.1';
 
-      // initial burst request 1 allowed
       const res1 = await request(app).get('/api/rapid-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res1.status, 200);
       assert.equal(res1.headers['ratelimit-remaining'], '1');
 
-      // initial burst request 2 allowed
       const res2 = await request(app).get('/api/rapid-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res2.status, 200);
       assert.equal(res2.headers['ratelimit-remaining'], '0');
 
-      // immediate request 3 blocked http 429
       const res3 = await request(app).get('/api/rapid-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res3.status, 429);
       assert.equal(res3.body.success, false);
@@ -469,10 +446,8 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
       assert.ok(Number(res3.headers['retry-after']) >= 1);
       assert.equal(res3.headers['ratelimit-reset'], res3.headers['retry-after']);
 
-      // wait for token to refill 50ms wait 70ms
       await new Promise((resolve) => setTimeout(resolve, 70));
 
-      // retried request 4 recovered http 200 ok
       const res4 = await request(app).get('/api/rapid-resource').set('X-Forwarded-For', clientIp);
       assert.equal(res4.status, 200);
       assert.equal(res4.body.success, true);
@@ -500,7 +475,6 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
 
       const clientIp = '10.99.88.77';
 
-      // fire 50 requests simultaneously
       const results = await Promise.all(
         Array.from({ length: 50 }, () =>
           request(app).get('/api/concurrent').set('X-Forwarded-For', clientIp)
@@ -510,7 +484,6 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
       const allowedResponses = results.filter((r) => r.status === 200);
       const blockedResponses = results.filter((r) => r.status === 429);
 
-      // quota integrity exactly 10 allowed 40 blocked
       assert.equal(allowedResponses.length, 10);
       assert.equal(blockedResponses.length, 40);
 
