@@ -450,6 +450,9 @@ npm test
   - **Smart Redis-Backed Demo**: Live Express demo auto-detects `REDIS_URL` for distributed rate limiting with graceful fallback to `MemoryStore` and `/api/status` healthcheck.
   - **Deployment Security Hardening**: Bound Redis to `127.0.0.1:6379`, parameterized Grafana admin secrets, and authenticated chaos failure injection endpoints.
   - **GitHub Actions CI/CD Pipeline**: Multi-version test matrix (Node.js 18, 20, 22) with live Redis service container.
+* **v8.0.1 (Repository & Branding Synchronization)**:
+  - **Synchronized Repository URLs**: Updated official repository, issues, and homepage metadata to `LimitForge`.
+  - **Documentation & Demo Alignment**: Fully unified all examples, observability dashboards, and benchmark banners under the LimitForge identity.
 
 ---
 
