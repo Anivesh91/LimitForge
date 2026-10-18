@@ -1,6 +1,6 @@
 # RateShield
 
-[![npm version](https://img.shields.io/npm/v/rateshield.svg)](https://www.npmjs.com/package/rateshield)
+[![npm version](https://img.shields.io/npm/v/@anivesh91/rateshield.svg)](https://www.npmjs.com/package/@anivesh91/rateshield)
 [![CI Status](https://github.com/Anivesh91/RateShield/actions/workflows/ci.yml/badge.svg)](https://github.com/Anivesh91/RateShield/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
@@ -10,7 +10,7 @@ Production-ready distributed rate limiting and resilience middleware for Express
 ## Installation
 
 ```bash
-npm install rateshield
+npm install @anivesh91/rateshield
 ```
 
 ## Quick Start
@@ -25,7 +25,7 @@ import {
   MemoryStore,
   createPrometheusExporter,
   OpenTelemetryBridge
-} from 'rateshield';
+} from '@anivesh91/rateshield';
 
 const app = express();
 const redisClient = createClient({
@@ -442,7 +442,7 @@ npm test
   - **Security & Identity Hardening**: Defensive clamping of client identifiers to 256 characters (`MAX_IDENTIFIER_LENGTH = 256`) and optional cryptographic SHA-256 hashing (`hashClientIdentifier: true`) to mask raw API tokens in Redis storage.
   - **Nanosecond Benchmarks**: Realistic, empirical overhead measurement (`npm run benchmark`) using `process.hrtime.bigint()`.
 * **v8.0.0 (Release & Production Hardening)**:
-  - **Official NPM Package Name**: Formally released as `rateshield` with clean packaging metadata and homepage.
+  - **Official NPM Package Name**: Formally released as `@anivesh91/rateshield` with clean packaging metadata and homepage.
   - **Comprehensive TypeScript Definitions (`index.d.ts`)**: Full type definitions covering all options, algorithms, stores, circuit breakers, and telemetry exports.
   - **Production Tarball Whitelist (`files`)**: Clean packaging including only runtime code (`src/`, `index.d.ts`, `README.md`, `LICENSE`), eliminating internal tests and dev assets.
   - **Official MIT License**: Added root `LICENSE` file with official copyright.

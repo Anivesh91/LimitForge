@@ -1,10 +1,13 @@
 {
-  "name": "rateshield",
+  "name": "@anivesh91/rateshield",
   "version": "8.0.0",
   "description": "Production-ready distributed rate limiting and resilience middleware for Express.js supporting Redis Lua, Token Bucket, Sliding Window, Circuit Breakers, and Prometheus metrics",
   "type": "module",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "main": "./src/index.js",
   "types": "./index.d.ts",
