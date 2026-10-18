@@ -83,7 +83,7 @@ router.get(
 router.get('/status', (req, res) => {
   res.json({
     status: 'online',
-    package: '@anivesh91/rateshield',
+    package: 'limitforge',
     store: redisClient && redisClient.isOpen ? 'redis' : 'memory',
     redisConnected: Boolean(redisClient && redisClient.isOpen),
     clientIp: req.ip
