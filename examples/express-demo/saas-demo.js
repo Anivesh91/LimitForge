@@ -88,7 +88,7 @@ app.post('/api/export', (req, res) => {
 
 app.get('/', (req, res) => {
   res.json({
-    title: 'SmartRate v4 — SaaS Multi-Tier & Dynamic Policy Demo',
+    title: 'RateShield v4 — SaaS Multi-Tier & Dynamic Policy Demo',
     tiers: {
       free: { apiKey: 'ak_free_123', ...TIER_POLICIES.free },
       pro: { apiKey: 'ak_pro_456', ...TIER_POLICIES.pro },
@@ -108,7 +108,7 @@ export function startSaasDemoServer(port = PORT) {
   return new Promise((resolve) => {
     server = app.listen(port, () => {
       console.log(`\n================================================================`);
-      console.log(`SmartRate v4 SaaS Multi-Tier Demo running at http://localhost:${port}`);
+      console.log(`RateShield v4 SaaS Multi-Tier Demo running at http://localhost:${port}`);
       console.log(`================================================================`);
       console.log(`[Free Tier]       x-api-key: ak_free_123  (Capacity: 5,  Refill: 1/sec)`);
       console.log(`[Pro Tier]        x-api-key: ak_pro_456   (Capacity: 20, Refill: 5/sec)`);

@@ -1,7 +1,7 @@
-# SmartRate V7 — Performance & Overhead Report
+# RateShield V7 — Performance & Overhead Report
 
 > **Real Measurements, Not Marketing Claims.**  
-> SmartRate does not claim "zero overhead" or "sub-microsecond Redis calls". Every middleware layer adds execution time. This report documents empirical benchmark results measured using high-precision nanosecond timers (`process.hrtime.bigint()`).
+> RateShield does not claim "zero overhead" or "sub-microsecond Redis calls". Every middleware layer adds execution time. This report documents empirical benchmark results measured using high-precision nanosecond timers (`process.hrtime.bigint()`).
 
 ---
 
@@ -99,7 +99,7 @@ The following Redis values are estimates, not results from this benchmark. They 
 
 | Redis Component | Estimated Latency | Estimated Fraction of Total |
 | :--- | :---: | :---: |
-| **SmartRate In-Process Execution** *(measured MemoryStore p50 used as proxy)* | 2.60–3.70 µs | ~0.2–0.9% |
+| **RateShield In-Process Execution** *(measured MemoryStore p50 used as proxy)* | 2.60–3.70 µs | ~0.2–0.9% |
 | **Redis Network Round-Trip Time** *(assumed same-VPC range)* | 300–1,000 µs | ~54–91% |
 | **Redis Lua Script Execution** *(assumed range)* | 100–250 µs | ~9–45% |
 | **Estimated Total Redis Rate Limit Check** | **402.6 µs–1.254 ms** | **100%** |
@@ -112,7 +112,7 @@ Under these assumptions, network and Redis execution dominate the total. Actual 
 ## 6. Memory Cardinality Guard
 
 Uncontrolled Prometheus label cardinality is a common cause of production memory outages.  
-SmartRate enforces strict label hygiene:
+RateShield enforces strict label hygiene:
 
 1. **Never Label User IDs or IPs:**  
    Client identifiers (`req.ip`, API Keys, JWT sub) are defensive-clamped to 256 characters (with optional SHA-256 cryptographic hashing via `hashClientIdentifier: true`) and are **strictly excluded** from Prometheus metric labels to prevent label explosion.
