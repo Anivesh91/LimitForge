@@ -1,54 +1,54 @@
 # Security Policy
 
-The **LimitForge** team takes security and resilience vulnerabilities seriously. We appreciate the responsible disclosure of security issues by the developer and security research community.
+The LimitForge team and contributors take the security of our distributed rate limiting and resilience middleware seriously. We appreciate your efforts to responsibly disclose vulnerabilities to help us keep our users and applications safe.
 
 ---
 
 ## Supported Versions
 
-Only the latest major release receive active security updates and patches.
+Only the latest major version receives active security updates and patches.
 
-| Version | Supported          | Security Status         |
-| :------ | :----------------- | :---------------------- |
-| 8.x     | :white_check_mark: | Currently Supported     |
-| < 8.0   | :x:                | End of Life (Upgrade)   |
+| Version | Supported          |
+| ------- | ------------------ |
+| 8.x     | :white_check_mark: |
+| < 8.0   | :x:                |
+
+We strongly advise all users to stay updated with the latest release on [npm](https://www.npmjs.com/package/limitforge).
 
 ---
 
 ## Reporting a Vulnerability
 
-**Please do NOT report security vulnerabilities through public GitHub issues, discussions, or social media.**
+**Please do not report security vulnerabilities through public GitHub issues.**
 
-If you believe you have discovered a vulnerability in LimitForge:
+If you believe you have discovered a security vulnerability in LimitForge (such as a rate-limit bypass, timing attack, denial-of-service vector, memory leak, or cryptographic issue):
 
-1. **Email us privately** at:  
-   **[aniveshsikarwar@gmail.com](mailto:aniveshsikarwar@gmail.com)**
+1. **GitHub Security Advisory (Preferred):**
+   Submit a private report through the [LimitForge Security Advisory Page](https://github.com/Anivesh91/LimitForge/security/advisories/new).
 
-2. **Use the subject line**:  
-   `[SECURITY] Vulnerability Report: LimitForge`
+2. **Direct Email:**
+   If you prefer email, send a detailed report to:
+   - **Anivesh Sikarwar**: [aniveshsikarwar@gmail.com](mailto:aniveshsikarwar@gmail.com)
+   - Subject line: `[SECURITY] Potential vulnerability in LimitForge`
 
-3. **Include the following information**:
-   - Description of the vulnerability and its potential impact.
-   - Affected version(s) of LimitForge.
-   - Minimal reproduction code or Proof of Concept (PoC) demonstrating the behavior.
-   - Any proposed remediation, patch, or mitigation steps (if available).
+### What to Include in Your Report
 
----
-
-## Response & Disclosure Process
-
-1. **Acknowledgment**: You will receive an acknowledgment of your report within **48 hours**.
-2. **Investigation & Triage**: Our team will verify and investigate the reported issue within **3 to 5 business days**.
-3. **Patch Development**: If verified, a patch will be developed, tested, and published to the NPM registry as a new patch or minor release.
-4. **Coordinated Disclosure**: Once the fix is released, we will coordinate public disclosure through GitHub Security Advisories, crediting the reporter (unless anonymity is requested).
+To help us triage and resolve the issue quickly, please provide:
+- A clear description of the vulnerability.
+- Steps to reproduce or a minimal Proof of Concept (PoC) script.
+- The environment and versions used (Node.js version, LimitForge version, OS, Redis version if applicable).
+- Potential impact and threat model (e.g., bypass of rate limits, memory exhaustion under heavy load).
+- Any proposed fix or remediation (optional).
 
 ---
 
-## Security Best Practices for Users
+## Response Process & Timeline
 
-When running LimitForge in production, consider the following best practices:
+When we receive a vulnerability report:
 
-* **Hash Sensitive Client Identifiers**: If your `keyGenerator` consumes raw API keys, bearer tokens, or user secrets, enable `hashClientIdentifier: true` to prevent raw credentials from appearing in Redis storage keys.
-* **Configure Express `trust proxy` Correctly**: If your application is hosted behind reverse proxies or load balancers (e.g. Cloudflare, AWS ALB, Nginx), configure `app.set('trust proxy', ...)` strictly with your upstream proxy CIDR blocks to prevent spoofed `X-Forwarded-For` headers.
-* **Use ResilientStore with Timeouts**: Protect your production services against Redis network latency spikes or outages by wrapping your store with `ResilientStore` and setting an explicit `timeoutMs` (e.g. 150–250ms).
-* **Bound Route Cardinality**: When using Prometheus metrics, use `normalizeRoute` to avoid dynamic ID segments in metric labels that could lead to TSDB memory exhaustion.
+1. **Initial Acknowledgment:** We will acknowledge receipt of your report within **48 hours**.
+2. **Investigation & Triage:** We will confirm the issue, assess severity (CVSS), and determine the affected components within **5 business days**.
+3. **Patch Development:** A fix will be developed in a private security branch and validated against our full test suite.
+4. **Coordinated Disclosure:** We will coordinate release timing with you. A patched version will be published to npm along with a GitHub Security Advisory crediting your discovery (unless you prefer to remain anonymous).
+
+Thank you for helping keep LimitForge and the open-source ecosystem secure!

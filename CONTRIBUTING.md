@@ -1,30 +1,28 @@
 # Contributing to LimitForge
 
-First off, thank you for considering contributing to **LimitForge**! Open source libraries thrive on community collaboration, and whether you are fixing a typo in documentation, reporting a bug, or submitting a new storage engine, your help is welcome.
+Thank you for your interest in contributing to **LimitForge**! We welcome community contributions, bug reports, documentation improvements, and architectural suggestions.
+
+This document outlines our development workflows, coding standards, and pull request guidelines.
 
 ---
 
 ## Code of Conduct
 
-Please help maintain a welcoming, respectful, and inclusive environment. Be constructive, open to feedback, and considerate of fellow contributors.
+By participating in this project, you agree to maintain a respectful, inclusive, and professional environment for everyone. Please treat contributors and users with kindness and constructive feedback.
 
 ---
 
-## Getting Started
+## Development Setup
 
 ### Prerequisites
+- **Node.js**: `>= 18.0.0` (Node 20+ or 22+ recommended)
+- **npm**: `>= 9.0.0`
+- **Redis** *(optional for local testing)*: Redis server running on `localhost:6379` (or via Docker) to run distributed and Lua integration tests.
 
-* **Node.js**: `>= 18.0.0` (LimitForge relies on modern Node standard libraries like `node:test`, `node:crypto`, and native ES Modules).
-* **Git**: Installed and configured.
-* **Docker** (Optional, recommended for Redis tests): To run a local Redis container:
-  ```bash
-  docker run -d -p 6379:6379 --name redis-limitforge redis:7-alpine
-  ```
+### Getting Started
 
-### Development Setup
-
-1. **Fork the repository** on GitHub:  
-   [https://github.com/Anivesh91/LimitForge](https://github.com/Anivesh91/LimitForge)
+1. **Fork the repository** on GitHub:
+   Navigate to [https://github.com/Anivesh91/LimitForge](https://github.com/Anivesh91/LimitForge) and click **Fork**.
 
 2. **Clone your fork locally**:
    ```bash
@@ -32,71 +30,90 @@ Please help maintain a welcoming, respectful, and inclusive environment. Be cons
    cd LimitForge
    ```
 
-3. **Install development dependencies**:
+3. **Install dependencies**:
    ```bash
    npm install
    ```
 
----
-
-## Development Scripts
-
-| Command | Purpose |
-| :--- | :--- |
-| `npm test` | Runs the full test suite (260+ tests using `node:test`) |
-| `npm run typecheck` | Compiles TypeScript tests against `index.d.ts` declarations (`tsc --noEmit`) |
-| `npm run benchmark` | Measures empirical execution overhead using `process.hrtime.bigint()` |
-| `npm run dev` | Boots the Express demo server with file watching |
-| `npm run demo:multi` | Runs multi-instance distributed rate limiting verification |
-| `npm run demo:stack` | Boots the full Prometheus + Grafana observability stack demo |
+4. **Verify existing tests pass**:
+   ```bash
+   npm test
+   ```
+   All tests should pass cleanly (253+ passing tests, 0 failures).
 
 ---
 
-## Architectural Principles & Rules
+## Project Structure
 
-When contributing code to LimitForge, please adhere to these core architectural guidelines:
+```text
+limitforge/
+├── src/
+│   ├── limiter/         # Express middleware & core rate limiter engine
+│   ├── stores/          # MemoryStore, RedisStore, ResilientStore
+│   ├── resilience/      # CircuitBreaker, TimeoutGuard, Error types
+│   ├── telemetry/       # PrometheusExporter, MetricsCollector, OpenTelemetry
+│   ├── scripts/         # Atomic Redis Lua scripts (.lua)
+│   ├── utils/           # Route normalizer, key builder
+│   └── index.js         # Public package entry point
+├── tests/               # Native node:test unit & integration test suites
+├── examples/            # Runnable Express demos & Docker observability stack
+├── index.d.ts           # Public TypeScript typings
+├── README.md            # Main user documentation
+├── CHANGELOG.md         # Semantic version changelog
+├── SECURITY.md          # Vulnerability reporting policy
+└── package.json         # Package manifest & configuration
+```
 
-1. **Zero Runtime Dependencies Policy**:  
-   LimitForge enforces a strict zero-runtime-dependency rule. We do not accept PRs introducing packages into `"dependencies"`. All core algorithms, metrics serialization, and circuit breakers must be implemented using standard Node.js APIs (`node:crypto`, `node:events`, `node:fs`). Third-party integrations (e.g. `redis`, `express`) are treated strictly as optional `peerDependencies`.
+---
 
-2. **Native ES Modules (ESM)**:  
-   The codebase uses modern ES Module syntax (`import` / `export`). Avoid CommonJS `require()` or `module.exports`.
+## Development Workflow
 
-3. **Fail-Safe Error Boundaries**:  
-   Rate limiting is middleware. It must **never** crash or unhandle an error that takes down the consumer's host application. Store errors, Redis timeouts, and telemetry failures must be caught cleanly and routed through the configured failure policy.
+### 1. Create a Topic Branch
+Always branch off the `master` branch:
+```bash
+git checkout -b feature/my-new-feature
+# or
+git checkout -b fix/resolve-timeout-bug
+```
 
-4. **Atomic Lua Execution**:  
-   Any distributed state operation in `RedisStore` that requires reading and writing timestamps or tokens must be implemented as an atomic Lua script to eliminate race conditions under high concurrency.
+### 2. Coding Standards
+- **ES Modules**: We strictly use native ES Modules (`import`/`export`).
+- **Zero Runtime Dependencies**: The core limiter runs with zero external runtime dependencies. Do not add heavy production dependencies to `dependencies` in `package.json`.
+- **Performance First**: Rate limiting middleware runs on every HTTP request. Avoid micro-allocations, redundant JSON serializations, unindexed lookups, or unneeded regex calls in hot request loops.
+- **TypeScript Definitions**: If you modify any public options, signatures, or store methods, update `index.d.ts` accordingly.
+- **Defensive Error Handling**: Telemetry, metrics collection, and store fallbacks must never crash user HTTP request flows.
 
-5. **TypeScript Declarations**:  
-   If you add or modify a public configuration option, function, or store method, you **must** update the corresponding declaration in `index.d.ts` and ensure `npm run typecheck` passes with zero errors.
+### 3. Running Tests
+We use Node.js's native test runner (`node:test`):
+
+```bash
+# Run the entire test suite
+npm test
+
+# Run a specific test file
+node --test tests/memory-token-bucket.test.js
+```
+
+### 4. Running Benchmarks
+If you touch the request evaluation pipeline, verify that overhead remains bounded within microseconds:
+```bash
+npm run benchmark
+```
 
 ---
 
 ## Pull Request Guidelines
 
-1. **Create a Feature Branch**:
-   ```bash
-   git checkout -b feat/my-awesome-feature
-   # or
-   git checkout -b fix/issue-description
-   ```
-
-2. **Write Unit Tests**:  
-   Add test coverage for your changes under the `tests/` directory. Aim for high coverage of edge cases, boundary conditions, and invalid parameter inputs.
-
-3. **Verify Tests & Types**:  
-   Before opening your PR, verify that all suites pass cleanly:
-   ```bash
-   npm test
-   npm run typecheck
-   ```
-
-4. **Write Clear Commit Messages**:  
-   Use descriptive, imperative commit messages (e.g., `add configurable key prefix to RedisStore`, `fix sliding window boundary calculation`).
-
-5. **Submit the Pull Request**:  
-   Open your PR against the `master` branch of `Anivesh91/LimitForge`. Include a clear description of what changed, why it was needed, and any related issue numbers.
+Before submitting your PR:
+1. Ensure `npm test` passes 100% with zero failures.
+2. If adding a new feature or fixing a bug, include corresponding unit/integration tests in `tests/`.
+3. If public options changed, update `index.d.ts` and `README.md`.
+4. Keep commits clean, atomic, and well-described:
+   - `fix: prevent circuit breaker half-open race condition`
+   - `docs: update redis store injection examples`
+   - `feat: support custom sliding window interval`
+5. Open a Pull Request against the `master` branch of `Anivesh91/LimitForge`.
+6. Provide a concise description of your changes, motivation, and test coverage in the PR template.
 
 ---
 
