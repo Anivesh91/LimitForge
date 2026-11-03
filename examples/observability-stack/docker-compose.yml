@@ -3,7 +3,7 @@ version: '3.8'
 services:
   redis:
     image: redis:7-alpine
-    container_name: smartrate-redis
+    container_name: limitforge-redis
     ports:
       - "127.0.0.1:6379:6379"
     restart: unless-stopped
@@ -12,21 +12,24 @@ services:
     build:
       context: ../..
       dockerfile: examples/observability-stack/Dockerfile
-    container_name: smartrate-app
+    container_name: limitforge-app
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - PORT=3000
       - REDIS_URL=redis://redis:6379
+      - NODE_ENV=${NODE_ENV:-development}
+      - ALLOW_CHAOS=${ALLOW_CHAOS:-true}
+      - CHAOS_SECRET=${CHAOS_SECRET:-}
     depends_on:
       - redis
     restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:v2.48.0
-    container_name: smartrate-prometheus
+    container_name: limitforge-prometheus
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../../assets/alerts/prometheus-rules.yml:/etc/prometheus/prometheus-rules.yml:ro
@@ -36,11 +39,11 @@ services:
 
   grafana:
     image: grafana/grafana:10.2.2
-    container_name: smartrate-grafana
+    container_name: limitforge-grafana
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-limitforge_secure_dev}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro

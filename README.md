@@ -4,6 +4,8 @@
 [![CI Status](https://github.com/Anivesh91/LimitForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Anivesh91/LimitForge/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue.svg)](index.d.ts)
+[![Security Policy](https://img.shields.io/badge/Security-Policy-brightgreen.svg)](SECURITY.md)
 
 Production-ready distributed rate limiting and resilience middleware for Express.js supporting **Full Observability (Prometheus, Grafana, OpenTelemetry)**, **High-Precision Performance Benchmarks**, **Production Resilience & Store Fault Tolerance**, **Circuit Breaker & Dual-Store Failover**, **Token Bucket + Controlled Burst**, **Rolling Sliding Window**, and **Fixed Window** algorithms, **Custom Client Identity** (API Key, User ID, Multi-Tenant), and **Dynamic Tier-Based Policies**.
 
@@ -195,6 +197,69 @@ stateDiagram-v2
 
 ---
 
+## Multi-Instance Degraded Mode & Quota Trade-Offs
+
+When deploying LimitForge across $N$ instances (e.g. Kubernetes pods, PM2 cluster, or multi-server autoscaling groups) with `fallbackStore: true` or `ResilientStore`, LimitForge adopts an **Availability-First (AP)** architectural posture during storage outages:
+
+| Store Status | Active Quota Engine | Scope of Rate Limit | Total Cluster Cap ($N$ nodes, limit $L$) |
+| :--- | :--- | :--- | :--- |
+| **Normal** (Redis Healthy) | `RedisStore` via Atomic Lua | **Global Distributed** | **Strictly $L$** across the entire cluster |
+| **Degraded** (Redis Down) | `MemoryStore` Fallback | **Local Per-Process** | **Up to $N \times L$** across the cluster |
+
+### 🔍 Architectural Trade-Off Analysis
+
+```mermaid
+flowchart TD
+    subgraph LB ["Load Balancer"]
+        Traffic(["Incoming Requests"])
+    end
+
+    subgraph Cluster ["Application Cluster"]
+        subgraph Node1 ["Instance 1"]
+            M1[("Local MemoryStore 1")]
+        end
+        subgraph Node2 ["Instance 2"]
+            M2[("Local MemoryStore 2")]
+        end
+        subgraph Node3 ["Instance 3"]
+            M3[("Local MemoryStore 3")]
+        end
+    end
+
+    subgraph Storage ["Distributed Layer"]
+        Redis[("Redis Cluster")]
+    end
+
+    Traffic --> Node1 & Node2 & Node3
+    Node1 & Node2 & Node3 -. "💥 OUTAGE (Circuit OPEN)" .-> Redis
+    Node1 -->|"Enforces 100 req/min"| M1
+    Node2 -->|"Enforces 100 req/min"| M2
+    Node3 -->|"Enforces 100 req/min"| M3
+```
+
+1. **Why Local In-Memory Fallback?**
+   - In distributed systems (CAP theorem), a network partition or Redis crash forces a choice between total service downtime and temporary quota divergence.
+   - LimitForge avoids a binary failure mode where rate limiting either crashes the entire service (`500/503`) or opens the gates completely unmetered (`fail-open`).
+   - Instead, each instance bounds its own blast radius using local process memory.
+2. **Quota Multiplier ($N \times L$)**:
+   - If `limit: 100 req/min` is configured across 3 instances behind a round-robin load balancer:
+     - Under normal conditions, Redis ensures exactly **100 requests / min** total across all 3 nodes.
+     - During an outage, each instance independently enforces 100 requests. Aggregate cluster traffic may reach **up to 300 requests / min** before all nodes reject traffic.
+3. **When Strict Global Caps are Required**:
+   - If downstream third-party SLAs or payment billing strictly forbid exceeding $L$ even during an outage, configure:
+     ```javascript
+     rateLimiter({
+       store: new RedisStore({ client: redisClient }),
+       failStrategy: 'fail-closed', // Blocks requests with 503 instead of falling back to memory
+       timeoutMs: 250
+     });
+     ```
+4. **Production Outage Visibility**:
+   - **Response Header**: `RateLimit-Degraded: true` is attached to every HTTP response served while running on fallback.
+   - **Metrics & Alerting**: Prometheus counter `limitforge_store_errors_total{store="redis"}` increments immediately, and the Grafana panel **Degraded Fallback Traffic** displays real-time fallback activity.
+
+---
+
 ## Algorithm Comparison Matrix
 
 | Dimension | Fixed Window (`'fixed-window'`) | Sliding Window (`'sliding-window'`) | Token Bucket (`'token-bucket'`) |
@@ -315,7 +380,7 @@ npm run demo:multi
 
 ---
 
-## Verification & Test Catalog (253 Tests)
+## Verification & Test Catalog (268 Tests)
 
 Run the full automated test suite:
 
@@ -324,14 +389,14 @@ npm test
 ```
 
 ```text
-ℹ tests 253
-ℹ suites 98
-ℹ pass 253
+ℹ tests 268
+ℹ suites 100
+ℹ pass 268
 ℹ fail 0
 ℹ duration_ms ~3400ms
 ```
 
-### Test Suites Breakdown (253 Tests across 21 Test Files)
+### Test Suites Breakdown (268 Tests across 21 Test Files)
 
 1. **`tests/telemetry.collector.test.js`** (34 tests) — **[v7]**
    - Route normalization & cardinality guard (`UUID`, `ULID`, `CUID`, numeric, and hex hash sanitization).
@@ -422,7 +487,22 @@ npm test
 
 ---
 
+## Contributing
+
+We welcome community contributions, bug reports, and optimizations! Please see our [Contributing Guide](CONTRIBUTING.md) for local development setup, architectural rules, and pull request guidelines.
+
+---
+
+## Security
+
+To report security vulnerabilities, please refer to our [Security Policy](SECURITY.md).
+
+---
+
 ## Roadmap & Version History
+
+For the complete version history, release notes, and migration guides, see [CHANGELOG.md](CHANGELOG.md).
+
 
 * **v1.0.0**: In-memory Fixed Window rate limiter for Express.js.
 * **v2.0.0**: Pluggable storage architecture, distributed `RedisStore`, and atomic Lua script execution.

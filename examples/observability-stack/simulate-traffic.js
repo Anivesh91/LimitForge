@@ -6,6 +6,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function makeRequest(path, method = 'GET', body = null) {
   try {
     const options = { method, headers: {} };
+    if (process.env.CHAOS_SECRET) {
+      options.headers['x-chaos-secret'] = process.env.CHAOS_SECRET;
+    }
     if (body) {
       options.headers['Content-Type'] = 'application/json';
       options.body = JSON.stringify(body);

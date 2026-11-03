@@ -1,5 +1,6 @@
 import express from 'express';
 import { createClient } from 'redis';
+import { checkChaosAllowed } from './chaosMiddleware.js';
 import {
   rateLimiter,
   RedisStore,
@@ -125,16 +126,7 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
   });
 });
 
-const checkChaosAllowed = (req, res, next) => {
-  if (process.env.NODE_ENV === 'production' && !process.env.ALLOW_CHAOS) {
-    return res.status(403).json({ error: 'Chaos testing is disabled in production' });
-  }
-  const secret = process.env.CHAOS_SECRET;
-  if (secret && req.headers['x-chaos-secret'] !== secret) {
-    return res.status(401).json({ error: 'Unauthorized: Invalid x-chaos-secret' });
-  }
-  next();
-};
+export { checkChaosAllowed };
 
 app.post('/api/chaos/break-store', checkChaosAllowed, (req, res) => {
   chaosActive = true;
@@ -172,12 +164,12 @@ app.use((err, req, res, next) => {
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log('================================================================================');
-    console.log('   LimitForge V7 — Production Observability Demo Stack');
+    console.log('   LimitForge V8.0.1 — Production Observability Demo Stack');
     console.log('================================================================================');
     console.log(`• Express Server:       http://localhost:${PORT}`);
     console.log(`• Prometheus Metrics:   http://localhost:${PORT}/metrics`);
     console.log(`• Prometheus Server:    http://localhost:9090`);
-    console.log(`• Grafana Dashboard:    http://localhost:3001 (admin / admin)`);
+    console.log(`• Grafana Dashboard:    http://localhost:3001 (admin / ${process.env.GRAFANA_ADMIN_PASSWORD || 'limitforge_secure_dev'})`);
     console.log('--------------------------------------------------------------------------------');
     console.log('Active Routes:');
     console.log('  GET  /api/public        (Fixed Window: 20 req / 15s)');

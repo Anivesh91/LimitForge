@@ -3,13 +3,14 @@ import crypto from 'node:crypto';
 export const MAX_IDENTIFIER_LENGTH = 256;
 
 export function buildRateLimitKey({
-  prefix = 'smartrate',
+  prefix = 'limitforge',
   algorithm = 'fixed-window',
   method = 'GET',
   route = '/',
   clientIdentifier = '127.0.0.1',
   hashClientIdentifier = false
 } = {}) {
+  const cleanPrefix = (prefix && String(prefix).trim()) ? String(prefix).trim() : 'limitforge';
   const cleanMethod = (method || 'GET').toUpperCase();
   const cleanRoute = (route || '/').split('?')[0] || '/';
   const rawId = clientIdentifier && String(clientIdentifier).trim()
@@ -32,10 +33,10 @@ export function buildRateLimitKey({
   }
 
   if (algorithm && algorithm !== 'fixed-window') {
-    return `${prefix}:${algorithm}:${cleanMethod}:${cleanRoute}:${cleanId}`;
+    return `${cleanPrefix}:${algorithm}:${cleanMethod}:${cleanRoute}:${cleanId}`;
   }
 
-  return `${prefix}:${cleanMethod}:${cleanRoute}:${cleanId}`;
+  return `${cleanPrefix}:${cleanMethod}:${cleanRoute}:${cleanId}`;
 }
 
 export default buildRateLimitKey;

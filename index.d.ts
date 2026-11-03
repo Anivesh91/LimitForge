@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction, RequestHandler } from 'express';
 
 export type RateLimiterAlgorithm = 'fixed-window' | 'sliding-window' | 'token-bucket';
 export type FailStrategy = 'fail-open' | 'fail-closed';
+export type StoreErrorMode = 'fail-open' | 'fail-closed' | 'error';
 
 export interface StoreConsumeParams {
   key: string;
@@ -23,12 +24,47 @@ export interface StoreConsumeResult {
   retryAfter?: number;
   degraded?: boolean;
   circuitState?: string;
+  store?: string;
+  fallbackUsed?: boolean;
 }
 
 export interface IRateLimitStore {
   consume(params: StoreConsumeParams): Promise<StoreConsumeResult> | StoreConsumeResult;
+  cleanupExpiredRecords?(now?: number): number | Promise<number>;
   resetKey?(key: string): Promise<void> | void;
   destroy?(): void;
+  prefix?: string;
+}
+
+export interface CircuitBreakerOptions {
+  failureThreshold?: number;
+  resetTimeoutMs?: number;
+  successThreshold?: number;
+  name?: string;
+  id?: string;
+  breakerId?: string;
+  isFailure?: (err: Error) => boolean;
+}
+
+export declare class CircuitBreaker {
+  failureThreshold: number;
+  resetTimeoutMs: number;
+  successThreshold: number;
+  id: string | null;
+  state: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+  constructor(options?: CircuitBreakerOptions);
+  execute<T>(action: () => Promise<T>): Promise<T>;
+  getState(): 'CLOSED' | 'OPEN' | 'HALF_OPEN';
+  trip(): void;
+  reset(): void;
+  getStats(): {
+    state: string;
+    consecutiveFailures: number;
+    consecutiveSuccesses: number;
+    failureThreshold: number;
+    resetTimeoutMs: number;
+    successThreshold: number;
+  };
 }
 
 export interface RateLimiterOptions {
@@ -39,31 +75,37 @@ export interface RateLimiterOptions {
   algorithm?: RateLimiterAlgorithm;
   capacity?: number | ((req: Request) => number | Promise<number>);
   refillRate?: number | ((req: Request) => number | Promise<number>);
-  refillIntervalMs?: number;
+  refillIntervalMs?: number | ((req: Request) => number | Promise<number>);
   cost?: number | ((req: Request) => number | Promise<number>);
-  keyGenerator?: (req: Request) => string | Promise<string>;
+  keyGenerator?: (req: Request) => string | undefined | null | Promise<string | undefined | null>;
   hashClientIdentifier?: boolean | ((identifier: string) => string);
+  prefix?: string;
   timeoutMs?: number;
+  circuitBreaker?: boolean | CircuitBreakerOptions | CircuitBreaker;
   failureThreshold?: number;
   resetTimeoutMs?: number;
+  successThreshold?: number;
+  breakerId?: string;
   failStrategy?: FailStrategy;
+  onStoreError?: StoreErrorMode | ((err: Error, req: Request, res: Response, next: NextFunction) => void);
   metrics?: boolean | MetricsCollector;
-  openTelemetry?: boolean | { tracer?: any; getSpan?: (req: Request) => any };
-  onStoreError?: (err: Error, req: Request, res: Response, next: NextFunction) => void;
+  metricsCollector?: MetricsCollector;
+  routeNormalizer?: (req: Request) => string;
+  openTelemetry?: boolean | OpenTelemetryBridge | { tracer?: any; getSpan?: (req: Request) => any; recordEvaluation?: Function; recordStoreError?: Function };
   statusCode?: number;
-  message?: string | object | ((req: Request, res: Response) => any);
+  message?: string | object | ((req: Request, res: Response) => any | Promise<any>);
   skip?: (req: Request) => boolean | Promise<boolean>;
-  skipFailedRequests?: boolean;
-  skipSuccessfulRequests?: boolean;
 }
 
 export declare function rateLimiter(options?: RateLimiterOptions): RequestHandler;
 export default rateLimiter;
 
 export declare class MemoryStore implements IRateLimitStore {
+  cleanupIntervalMs: number;
+  store: Map<string, any>;
   constructor(options?: { cleanupIntervalMs?: number });
   consume(params: StoreConsumeParams): StoreConsumeResult;
-  resetKey(key: string): void;
+  cleanupExpiredRecords(now?: number): number;
   destroy(): void;
 }
 
@@ -73,46 +115,35 @@ export interface RedisClientLike {
 }
 
 export declare class RedisStore implements IRateLimitStore {
+  client: RedisClientLike;
+  prefix?: string;
   constructor(options: { client: RedisClientLike; prefix?: string });
   consume(params: StoreConsumeParams): Promise<StoreConsumeResult>;
-  resetKey(key: string): Promise<void>;
 }
 
-export interface CircuitBreakerOptions {
+export interface ResilientStoreOptions {
+  primaryStore: IRateLimitStore;
+  fallbackStore?: IRateLimitStore;
+  circuitBreaker?: boolean | CircuitBreakerOptions | CircuitBreaker;
+  breaker?: CircuitBreaker;
+  timeoutMs?: number;
   failureThreshold?: number;
   resetTimeoutMs?: number;
-  name?: string;
-  breakerId?: string;
-  onStateChange?: (oldState: string, newState: string) => void;
-}
-
-export declare class CircuitBreaker {
-  constructor(options?: CircuitBreakerOptions);
-  execute<T>(action: () => Promise<T>): Promise<T>;
-  getState(): 'CLOSED' | 'OPEN' | 'HALF_OPEN';
-  trip(): void;
-  reset(): void;
 }
 
 export declare class ResilientStore implements IRateLimitStore {
   primaryStore: IRateLimitStore;
   fallbackStore: IRateLimitStore;
-  breaker: CircuitBreaker;
-  constructor(options: {
-    primaryStore: IRateLimitStore;
-    fallbackStore?: IRateLimitStore;
-    breaker?: CircuitBreaker;
-    timeoutMs?: number;
-    failureThreshold?: number;
-    resetTimeoutMs?: number;
-    breakerId?: string;
-  });
+  circuitBreaker: CircuitBreaker | null;
+  readonly breaker: CircuitBreaker | null;
+  timeoutMs: number;
+  constructor(options: ResilientStoreOptions);
   consume(params: StoreConsumeParams): Promise<StoreConsumeResult>;
-  resetKey(key: string): Promise<void>;
+  cleanupExpiredRecords(now?: number): number;
   getStats(): {
-    circuitBreaker: { state: string; failureCount: number };
-    primaryStore: string;
-    fallbackStore: string;
+    circuitBreaker: any;
+    timeoutMs: number;
+    hasFallbackStore: boolean;
   };
 }
 
@@ -158,19 +189,21 @@ export declare class OpenTelemetryBridge {
 
 export declare class StoreTimeoutError extends Error {
   code: string;
+  isTimeout: boolean;
   timeoutMs: number;
-  constructor(timeoutMs: number, operation?: string);
+  constructor(timeoutMs?: number, message?: string);
 }
 
 export declare class CircuitBreakerOpenError extends Error {
   code: string;
-  retryAfter: number;
-  constructor(message?: string, retryAfter?: number);
+  isCircuitOpen: boolean;
+  resetTimeoutMs?: number;
+  constructor(message?: string, resetTimeoutMs?: number);
 }
 
 export declare const MAX_IDENTIFIER_LENGTH: number;
 
-export declare function buildRateLimitKey(params: {
+export declare function buildRateLimitKey(params?: {
   method?: string;
   route?: string;
   clientIdentifier?: string;
@@ -179,11 +212,11 @@ export declare function buildRateLimitKey(params: {
   hashClientIdentifier?: boolean | ((id: string) => string);
 }): string;
 
-export declare function normalizeRoute(path: string): string;
-export declare function sanitizePath(path: string): string;
+export declare function normalizeRoute(req: Request, customNormalizer?: (req: Request) => string): string;
+export declare function sanitizePath(rawPath: string): string;
 export declare function createPrometheusExporter(collector?: MetricsCollector): RequestHandler;
-export declare function formatPrometheusMetrics(snapshot: any): string;
-export declare function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation?: string): Promise<T>;
+export declare function formatPrometheusMetrics(snapshot?: any): string;
+export declare function withTimeout<T>(operation: Promise<T> | T, timeoutMs: number): Promise<T>;
 export declare function runBenchmark(options?: any): Promise<any>;
 export declare function calculatePercentiles(latencies: bigint[]): any;
 
