@@ -1,8 +1,8 @@
 # Changelog
 
-All notable changes to **LimitForge** will be documented in this file.
+All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
@@ -10,98 +10,120 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [8.0.1] - 2026-10-19
 
 ### Changed
-- **Official NPM Branding**: Rebranded published package to `limitforge` with public unscoped registry distribution.
-- **Repository Metadata**: Synchronized GitHub repository URL, issue tracker, and homepage to `https://github.com/Anivesh91/LimitForge`.
-- **Demo & Observability Alignment**: Unified all demonstration servers, traffic simulators, and benchmark banners under the LimitForge identity.
-- **TypeScript Type Definitions**: Enriched `index.d.ts` with strict typings for `StoreErrorMode`, `CircuitBreakerOptions`, `CircuitBreaker`, `IRateLimitStore`, and `routeNormalizer`.
-
-### Fixed
-- Fixed documentation links and CI status badge endpoints.
+- **Repository URL Synchronization**: Updated `package.json`, documentation, and CI workflows to point to the official `LimitForge` repository on GitHub.
+- **Brand Alignment**: Unified all example demos, chaos test scripts, observability stacks, and benchmark CLI banners under the `LimitForge` identity.
+- **Dependency Optimization**: Explicitly separated `redis` into optional `peerDependencies` (`>=4.0.0`) and `devDependencies` to ensure zero runtime dependency bloat for in-memory users.
 
 ---
 
 ## [8.0.0] - 2026-10-18
 
 ### Added
-- **Official NPM Release**: Formally released package on NPM registry.
-- **TypeScript Declarations**: Added comprehensive ambient type definitions in `index.d.ts` covering all options, algorithms, stores, resilience guards, and telemetry bridges.
-- **Production Tarball Whitelist**: Added `files` field in `package.json` packaging only runtime assets (`src/`, `index.d.ts`, `README.md`, `LICENSE`), eliminating internal tests and dev tools from consumer downloads.
-- **Root License**: Added official MIT `LICENSE` file.
-- **GitHub Actions CI/CD Pipeline**: Multi-version test matrix running on Node.js 18, 20, and 22 with live Redis service container.
-- **Proxy Configuration in Demos**: Enabled `trust proxy` in Express demos for accurate client IP resolution behind Cloudflare, Railway, AWS ALB, and reverse proxies.
-- **Production Hardening**: Enforced 127.0.0.1 loopback binding for local Redis instances and added authenticated chaos injection in observability demo stack.
+- **Official NPM Release**: Published as `limitforge` on npm with zero runtime dependencies.
+- **TypeScript Declarations**: Comprehensive TypeScript definitions (`index.d.ts`) covering all options, stores, circuit breakers, and telemetry exports.
+- **CI/CD Pipeline**: GitHub Actions test matrix across Node.js 18, 20, and 22 with live Redis service containers.
+- **Tarball Whitelist (`files`)**: Clean packaging including only runtime code (`src/`, `index.d.ts`, `README.md`, `LICENSE`), excluding internal test fixtures.
+- **MIT License**: Formal open-source legal clearance added via root `LICENSE`.
+
+### Security
+- Added `engines` field enforcing Node.js `>=18.0.0`.
+- Bound demo Redis containers to `127.0.0.1:6379`.
+- Parameterized Grafana admin credentials and authenticated chaos injection endpoints.
 
 ---
 
-## [7.0.0] - 2026-10-15
+## [7.0.0] - 2026-10-10
 
 ### Added
-- **Zero-Dependency Native Prometheus Exposition (`/metrics`)**: Serializes counters, gauges, and cumulative histograms strictly adhering to standard Prometheus text exposition format (v0.0.4) without requiring `prom-client`.
-- **In-Memory Metrics Engine (`MetricsCollector`)**: High-throughput thread-safe aggregation with strict `maxSeries` memory bound and `_overflow` route aggregation.
-- **Cardinality Guard & Dynamic Route Sanitization (`normalizeRoute`)**: Automatically collapses numeric, UUID, ULID, and CUID identifiers into `:id` segments to protect TSDBs from label explosion.
-- **Circuit Breaker Isolation**: Supports `breakerId` for isolated gauge metrics (`smartrate_circuit_breaker_state{breaker="..."}`) and WeakMap listener deduplication.
-- **ResilientStore Outage Observability**: Automatically increments `smartrate_store_errors_total` and records span exceptions when primary store operations fail or time out.
-- **Duck-Typed OpenTelemetry Bridge (`OpenTelemetryBridge`)**: Enriches request spans with semantic attributes (`smartrate.outcome`, `smartrate.algorithm`, `smartrate.route`, `smartrate.remaining`, `smartrate.reset`) and emits span events without requiring `@opentelemetry/api`.
-- **Production Grafana Dashboard**: Pre-built importable Grafana dashboard JSON (`assets/dashboards/smartrate-grafana-dashboard.json`) featuring live throughput, block rate ratio, and latency percentiles.
-- **Production Alertmanager Rules**: Standard Prometheus alerting rules (`assets/alerts/prometheus-rules.yml`) for High Block Rate (>25%), Store Outages, Circuit Breaker trips, and High Store Latency (p95 > 50ms).
-- **High-Precision Benchmarking CLI (`npm run benchmark`)**: Nanosecond-precision overhead measurement (`process.hrtime.bigint()`) across 6 scenarios with 1,000 warmups + 10,000 requests each.
+- **Zero-Dependency Native Prometheus Exposition (`/metrics`)**:
+  - Implemented `createPrometheusExporter()` Express middleware and `formatPrometheusMetrics()` serializer adhering strictly to Prometheus v0.0.4 text exposition format without external dependencies.
+- **In-Memory Metrics Engine (`MetricsCollector`)**:
+  - Thread-safe tracking of throughput outcomes (`smartrate_requests_total`), store latencies (`smartrate_store_duration_seconds`), and circuit breaker states.
+- **Cardinality Guard & Dynamic Route Normalizer**:
+  - Automated collapsing of dynamic entity IDs (UUID, ULID, CUID, numeric, hex) to `:id` segments. Strictly excludes client IPs and tokens from metric labels.
+  - Hard series limit (`maxSeries`) collapsing excess routes into a safe `_overflow` metric bucket.
+- **OpenTelemetry Bridge (`OpenTelemetryBridge`)**:
+  - Duck-typed enrichment of active request spans with standard `ratelimit.*` attributes and exception recording without requiring mandatory `@opentelemetry/api`.
+- **Production Observability Stack**:
+  - Ready-to-deploy Docker Compose stack with Prometheus, Grafana, Redis, Alertmanager rules, and an automated traffic simulation generator.
+- **High-Precision Benchmarks CLI**:
+  - Monotonic nanosecond timer benchmarks (`npm run benchmark`) verifying in-memory overhead bounded at ~2.3–3.7 µs (p50).
 
 ---
 
-## [6.0.0] - 2026-09-28
+## [6.0.0] - 2026-10-02
 
 ### Added
-- **Store Timeout Guard (`withTimeout`, `StoreTimeoutError`)**: Enforces bounded operation latency (`timeoutMs`) on store calls to prevent slow database sockets from hanging Node.js event loops.
-- **Store Failure Policies (`onStoreError`)**:
-  - `fail-open`: Requests bypass rate limiting cleanly during database outages (`next()`), attaching `RateLimit-Degraded: true`.
-  - `fail-closed`: Requests are rejected with `HTTP 503 Service Unavailable` and dynamic `Retry-After`.
-  - Custom callback: `(err, req, res, next)` for application-specific fallback routing.
-- **Circuit Breaker Engine (`CircuitBreaker`)**: Stateful state machine (`CLOSED`, `OPEN`, `HALF_OPEN`) with fast-failing during outages and single canary probes for graceful self-healing.
-- **Dual-Store Resilience Wrapper (`ResilientStore`)**: Combines a primary store (e.g., Redis) with an automatic local fallback store (e.g., MemoryStore).
+- **Store Timeout Guard**:
+  - Enforced bounded store execution via `timeoutMs` (default 250ms) to prevent slow Redis or network partitions from stalling Express event loops.
+- **Configurable Failure Policies (`onStoreError`)**:
+  - Supported `next(err)` (default), `'fail-open'` (bypass rate limiting gracefully), and `'fail-closed'` (HTTP 503 rejection with dynamic `Retry-After`).
+- **Store Circuit Breaker Engine (`CircuitBreaker`)**:
+  - Finite State Machine (`CLOSED`, `OPEN`, `HALF_OPEN`) with lazy cooldown evaluation, single-flight canary probes, and store health probing.
+- **Dual-Store Resilience Wrapper (`ResilientStore`)**:
+  - Transparent primary/fallback store orchestration (e.g., Redis primary with MemoryStore fallback) setting `RateLimit-Degraded: true` and attaching `req.rateLimit` metadata.
 
 ---
 
-## [5.0.0] - 2026-09-26
+## [5.0.0] - 2026-09-27
 
 ### Added
-- **Option C HTTP Recovery & Reset Semantics**: Exact mathematical parity across MemoryStore and RedisStore for `RateLimit-Reset` and `Retry-After`.
-- **Client Recovery Verification**: End-to-end simulation of `200 OK` (burst) $\to$ `429 Too Many Requests` $\to$ wait `Retry-After` $\to$ `200 OK` recovery.
-- **Parallel Burst Concurrency Stress Tests**: Verification of 50 simultaneous parallel requests enforcing exact burst capacity under distributed Redis Lua.
+- **Token Bucket Algorithm (`algorithm: 'token-bucket'`)**:
+  - Sub-second continuous token refill math allowing controlled traffic bursts up to maximum configured `capacity`.
+- **Option C `RateLimit-Reset` Semantics**:
+  - Synchronized header parity across MemoryStore and RedisStore: allowed requests display seconds until the next token refills; blocked requests display exact seconds until sufficient tokens replenish.
+- **Distributed Shared Token Bucket**:
+  - High-concurrency Redis Lua script executing atomic continuous refill and token consumption across multiple Node.js instances with zero race conditions.
 
 ---
 
-## [4.0.0] - 2026-09-25
+## [4.0.0] - 2026-09-20
 
 ### Added
-- **Token Bucket Algorithm (`algorithm: 'token-bucket'`)**: Sub-second continuous token refill with burst capacity handling.
-- **Custom Client Identity (`keyGenerator`)**: Custom identifier generation supporting API keys, User IDs, and multi-tenant keys with automatic fallback to client IP.
-- **Dynamic Tier-Based Policies**: Dynamic resolution of `limit`, `windowMs`, `capacity`, and `refillRate` per request based on authenticated user tier.
-- **Weighted Request Costs (`cost`)**: Variable token consumption based on request payload weight or query parameters.
-- **Defensive Identifier Hashing**: Optional SHA-256 cryptographic hashing (`hashClientIdentifier: true`) to mask raw API tokens in storage.
+- **Custom Client Identity (`keyGenerator`)**:
+  - Support for API Key, Authenticated User ID, and Multi-Tenant composite rate limiting keys.
+  - Safe defensive clamping of client identifiers to 256 characters (`MAX_IDENTIFIER_LENGTH = 256`) and optional cryptographic SHA-256 hashing (`hashClientIdentifier: true`).
+- **Dynamic Tier-Based Policies**:
+  - Support for request-time dynamic resolution of `capacity`, `refillRate`, `limit`, and `windowMs` based on request attributes or subscription tiers.
+- **Weighted Request Costs (`cost`)**:
+  - Dynamic consumption weights for resource-intensive endpoints (e.g., file exports, heavy queries).
 
 ---
 
-## [3.0.0] - 2026-09-24
+## [3.0.0] - 2026-09-15
 
 ### Added
-- **Rolling Sliding Window Algorithm (`algorithm: 'sliding-window'`)**: Eliminates boundary-burst vulnerabilities using precise timestamp tracking.
-- **Atomic Redis ZSET Lua Engine**: High-performance sorted set implementation with rolling window eviction and atomic state transitions.
-- **Cross-Instance Synchronization**: Shared rate limiting across multiple distinct Express application instances.
+- **Rolling Sliding Window Rate Limiting (`algorithm: 'sliding-window'`)**:
+  - Accurate rolling-window protection strictly preventing boundary bursts.
+  - MemoryStore sliding queue with automatic periodic idle bucket eviction.
+  - Distributed atomic Redis implementation using Sorted Sets (ZSET) and microsecond Lua operations.
 
 ---
 
-## [2.0.0] - 2026-09-23
+## [2.0.0] - 2026-09-08
 
 ### Added
-- **Pluggable Storage Architecture**: Decoupled middleware engine from storage backend via `IRateLimitStore` interface.
-- **Distributed Redis Storage (`RedisStore`)**: Distributed atomic rate limiting across multiple server nodes using Redis Lua scripts.
-- **Lua Script Optimization**: Atomic increment and TTL assignment in a single Redis round-trip.
+- **Pluggable Storage Engine Architecture**:
+  - Decoupled storage interface implementing `.consume(key, options)`.
+- **Distributed RedisStore**:
+  - Redis-backed rate limiting using atomic Lua scripts supporting both `node-redis` v4/v5/v6 and compatible clients.
 
 ---
 
-## [1.0.0] - 2026-09-22
+## [1.0.0] - 2026-09-01
 
 ### Added
-- Initial release of In-Memory Fixed Window rate limiter for Express.js.
-- Standard rate limit response headers (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`).
-- Configurable window duration and maximum request thresholds.
+- **Initial Release**:
+  - In-memory Fixed Window rate limiting middleware for Express.js.
+  - Standard headers: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`.
+  - HTTP 429 Too Many Requests response with `Retry-After` header.
+
+[8.0.1]: https://github.com/Anivesh91/LimitForge/compare/v8.0.0...v8.0.1
+[8.0.0]: https://github.com/Anivesh91/LimitForge/compare/v7.0.0...v8.0.0
+[7.0.0]: https://github.com/Anivesh91/LimitForge/compare/v6.0.0...v7.0.0
+[6.0.0]: https://github.com/Anivesh91/LimitForge/compare/v5.0.0...v6.0.0
+[5.0.0]: https://github.com/Anivesh91/LimitForge/compare/v4.0.0...v5.0.0
+[4.0.0]: https://github.com/Anivesh91/LimitForge/compare/v3.0.0...v4.0.0
+[3.0.0]: https://github.com/Anivesh91/LimitForge/compare/v2.0.0...v3.0.0
+[2.0.0]: https://github.com/Anivesh91/LimitForge/compare/v1.0.0...v2.0.0
+[1.0.0]: https://github.com/Anivesh91/LimitForge/releases/tag/v1.0.0

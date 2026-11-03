@@ -18,7 +18,8 @@
     "src",
     "index.d.ts",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "dev": "node --watch examples/express-demo/server.js",
