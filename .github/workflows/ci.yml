@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     strategy:
       matrix:
@@ -41,6 +42,7 @@ jobs:
     - name: Run test suite
       run: npm test
       env:
+        NODE_ENV: test
         REDIS_URL: redis://localhost:6379
 
     - name: Verify npm packaging tarball
