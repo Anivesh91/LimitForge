@@ -1,4 +1,5 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import { checkChaosAllowed } from '../examples/observability-stack/chaosMiddleware.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -375,6 +376,64 @@ describe('SmartRate v7 — Day 3: OpenTelemetry Bridge, Alerting Rules & Grafana
       assert.ok(fs.existsSync(path.join(stackDir, 'server.js')));
       assert.ok(fs.existsSync(path.join(stackDir, 'simulate-traffic.js')));
       assert.ok(fs.existsSync(path.join(stackDir, 'README.md')));
+    });
+  });
+
+  describe('4. Chaos Endpoint Security Guard Verification', () => {
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+    });
+
+    it('blocks chaos endpoint in production when ALLOW_CHAOS is false as string', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.ALLOW_CHAOS = 'false';
+
+      let status = null;
+      let jsonBody = null;
+      const res = {
+        status(code) { status = code; return this; },
+        json(b) { jsonBody = b; return this; }
+      };
+
+      let nextCalled = false;
+      checkChaosAllowed({}, res, () => { nextCalled = true; });
+
+      assert.equal(nextCalled, false);
+      assert.equal(status, 403);
+      assert.match(jsonBody.error, /Chaos testing is disabled/);
+    });
+
+    it('blocks chaos endpoint in production when CHAOS_SECRET is missing or mismatched', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.ALLOW_CHAOS = 'true';
+      delete process.env.CHAOS_SECRET;
+
+      let status = null;
+      let jsonBody = null;
+      const res = {
+        status(code) { status = code; return this; },
+        json(b) { jsonBody = b; return this; }
+      };
+
+      let nextCalled = false;
+      checkChaosAllowed({ headers: {} }, res, () => { nextCalled = true; });
+
+      assert.equal(nextCalled, false);
+      assert.equal(status, 401);
+    });
+
+    it('allows chaos endpoint in production when explicitly enabled and valid secret provided', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.ALLOW_CHAOS = 'true';
+      process.env.CHAOS_SECRET = 'super-secret-key-123';
+
+      let nextCalled = false;
+      const req = { headers: { 'x-chaos-secret': 'super-secret-key-123' } };
+      checkChaosAllowed(req, {}, () => { nextCalled = true; });
+
+      assert.equal(nextCalled, true);
     });
   });
 });

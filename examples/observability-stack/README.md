@@ -1,6 +1,6 @@
-# SmartRate V7 — Production Observability Demo Stack
+# LimitForge V8.0.1 — Production Observability Demo Stack
 
-A complete, production-grade observability demo showcasing **SmartRate V7** running with **Prometheus**, **Grafana**, **OpenTelemetry**, **Distributed Redis**, and **Dual-Store Fallback Resilience**.
+A complete, production-grade observability demo showcasing **LimitForge** running with **Prometheus**, **Grafana**, **OpenTelemetry**, **Distributed Redis**, and **Dual-Store Fallback Resilience**.
 
 ---
 
@@ -14,7 +14,7 @@ A complete, production-grade observability demo showcasing **SmartRate V7** runn
                                      v
                       +-----------------------------+
                       |      Express Application    |
-                      |   (SmartRate V7 Middleware) |
+                      |  (LimitForge Middleware)    |
                       +--------------+--------------+
                                      |
                 +--------------------+--------------------+
@@ -52,16 +52,33 @@ docker-compose -f examples/observability-stack/docker-compose.yml up -d --build
 ```
 
 ### 2. Verify Services
-- **SmartRate Express App**: [http://localhost:3000](http://localhost:3000)
+- **LimitForge Express App**: [http://localhost:3000](http://localhost:3000)
 - **Prometheus Metrics**: [http://localhost:3000/metrics](http://localhost:3000/metrics)
 - **Prometheus UI & Alerts**: [http://localhost:9090](http://localhost:9090)
-- **Grafana Dashboard**: [http://localhost:3001](http://localhost:3001) *(login: `admin` / `admin`)*
+- **Grafana Dashboard**: [http://localhost:3001](http://localhost:3001) *(login: `admin` / `limitforge_secure_dev`)*
 
 ### 3. Run the Traffic Simulator
 In a separate terminal, trigger realistic production traffic, bursts, rate limits, chaos outages, and recovery:
 ```bash
 node examples/observability-stack/simulate-traffic.js
 ```
+
+---
+
+## OpenTelemetry Integration Architecture
+
+LimitForge's `OpenTelemetryBridge` conforms to OpenTelemetry Semantic Conventions (`ratelimit.*`).
+
+### 1. Zero-Dependency Mock Span Demo (`server.js`)
+In `server.js`, an in-process mock span is used to demonstrate telemetry attributes (`ratelimit.allowed`, `ratelimit.limit`, `ratelimit.remaining`, `ratelimit.reset`) and events without requiring heavy `@opentelemetry/sdk-node` npm dependencies in lightweight development containers.
+
+### 2. Real Production OpenTelemetry SDK (`otel-sdk-example.js`)
+For production clusters deploying with OpenTelemetry Collector, Jaeger, or Datadog, see [`otel-sdk-example.js`](./otel-sdk-example.js):
+```bash
+npm install @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/sdk-trace-base
+node examples/observability-stack/otel-sdk-example.js
+```
+`OpenTelemetryBridge` automatically resolves active spans via `trace.getActiveSpan()`, annotates spans with rate-limiting attributes, and records store exceptions upon degradation.
 
 ---
 
@@ -89,15 +106,15 @@ curl http://localhost:3000/metrics
 
 ## Live Chaos & Resilience Demonstration
 
-The demo server includes built-in chaos endpoints to simulate storage disasters and witness automatic fallback and alert triggers:
+The demo server includes built-in chaos endpoints guarded by `chaosMiddleware.js` (`ALLOW_CHAOS` and `x-chaos-secret` in production):
 
 ### Break Redis (Trigger Outage & Circuit Trip):
 ```bash
 curl -X POST http://localhost:3000/api/chaos/break-store
 ```
-- SmartRate immediately transitions to local `MemoryStore` fallback.
+- LimitForge immediately transitions to local `MemoryStore` fallback.
 - Adds `RateLimit-Degraded: true` header to responses.
-- Increments `smartrate_store_errors_total{store="redis"}`.
+- Increments `limitforge_store_errors_total{store="redis"}`.
 - Trips Circuit Breaker to `OPEN` (value `2` on `smartrate_circuit_breaker_state`).
 - Fires `SmartRateStoreOutage` and `SmartRateCircuitBreakerOpen` Prometheus alerts.
 

@@ -3,6 +3,25 @@ import { MemoryStore } from './memoryStore.js';
 import { CircuitBreaker } from '../resilience/circuitBreaker.js';
 import { withTimeout } from '../resilience/timeoutGuard.js';
 
+/**
+ * ResilientStore — High-Availability Dual-Store Failover Wrapper.
+ *
+ * Combines a distributed primary store (e.g., RedisStore) with a local in-memory
+ * fallback store (e.g., MemoryStore) guarded by an execution timeout and a Circuit Breaker.
+ *
+ * Operational Trade-off & Degradation Semantics:
+ * LimitForge prioritizes High Availability (AP) over strict Global Consistency (CP)
+ * when the distributed primary store becomes unreachable.
+ *
+ * In a multi-node cluster (N application instances):
+ * - Healthy state (Redis UP): Global rate limit L is strictly enforced across all nodes.
+ * - Degraded state (Redis DOWN): Each node switches to its local MemoryStore and enforces
+ *   quota L locally. Under heavy load, aggregate cluster throughput may reach up to N * L
+ *   before all instances throttle clients.
+ *
+ * If strict global quota enforcement is mandatory even during database failure, configure
+ * `failStrategy: 'fail-closed'` or `onStoreError: 'fail-closed'` on the rateLimiter.
+ */
 export class ResilientStore extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -15,6 +34,7 @@ export class ResilientStore extends EventEmitter {
       primaryStore,
       fallbackStore,
       circuitBreaker,
+      breaker,
       timeoutMs = 250,
       failureThreshold = 5,
       resetTimeoutMs = 10000
@@ -41,11 +61,12 @@ export class ResilientStore extends EventEmitter {
     }
     this.timeoutMs = timeoutMs;
 
-    if (circuitBreaker instanceof CircuitBreaker) {
-      this.circuitBreaker = circuitBreaker;
-    } else if (typeof circuitBreaker === 'object' && circuitBreaker !== null) {
-      this.circuitBreaker = new CircuitBreaker(circuitBreaker);
-    } else if (circuitBreaker === false) {
+    const chosenBreaker = circuitBreaker !== undefined ? circuitBreaker : breaker;
+    if (chosenBreaker instanceof CircuitBreaker) {
+      this.circuitBreaker = chosenBreaker;
+    } else if (typeof chosenBreaker === 'object' && chosenBreaker !== null) {
+      this.circuitBreaker = new CircuitBreaker(chosenBreaker);
+    } else if (chosenBreaker === false) {
       this.circuitBreaker = null;
     } else {
       this.circuitBreaker = new CircuitBreaker({ failureThreshold, resetTimeoutMs });
@@ -57,6 +78,10 @@ export class ResilientStore extends EventEmitter {
       this.circuitBreaker.on('close', (evt) => this.emit('circuitClose', evt));
       this.circuitBreaker.on('probe', (evt) => this.emit('probe', evt));
     }
+  }
+
+  get breaker() {
+    return this.circuitBreaker;
   }
 
   async consume(params) {

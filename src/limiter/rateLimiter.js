@@ -46,8 +46,25 @@ function validateOptions(options) {
     routeNormalizer,
     openTelemetry,
     hashClientIdentifier,
-    breakerId
+    breakerId,
+    prefix,
+    skip,
+    statusCode,
+    message,
+    failStrategy
   } = options;
+
+  if (prefix !== undefined && (typeof prefix !== 'string' || prefix.trim().length === 0)) {
+    throw new TypeError("SmartRate: 'prefix' must be a non-empty string.");
+  }
+
+  if (skip !== undefined && typeof skip !== 'function') {
+    throw new TypeError("SmartRate: 'skip' must be a function.");
+  }
+
+  if (statusCode !== undefined && (typeof statusCode !== 'number' || !Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599)) {
+    throw new RangeError(`SmartRate: 'statusCode' must be a valid HTTP status code integer (received: ${statusCode}).`);
+  }
 
   if (breakerId !== undefined && (typeof breakerId !== 'string' || breakerId.trim().length === 0)) {
     throw new TypeError("SmartRate: 'breakerId' must be a non-empty string.");
@@ -70,8 +87,12 @@ function validateOptions(options) {
     }
   }
 
-  if (metrics !== undefined && typeof metrics !== 'boolean') {
-    throw new TypeError("SmartRate: 'metrics' must be a boolean.");
+  if (
+    metrics !== undefined &&
+    typeof metrics !== 'boolean' &&
+    (typeof metrics !== 'object' || metrics === null || typeof metrics.recordRequest !== 'function')
+  ) {
+    throw new TypeError("SmartRate: 'metrics' must be a boolean or a MetricsCollector instance.");
   }
 
   if (metricsCollector !== undefined && (typeof metricsCollector !== 'object' || metricsCollector === null || typeof metricsCollector.recordRequest !== 'function')) {
@@ -92,14 +113,15 @@ function validateOptions(options) {
     throw new RangeError(`SmartRate: 'timeoutMs' must be a positive number in milliseconds (received: ${timeoutMs}).`);
   }
 
+  const effectiveStoreError = onStoreError !== undefined ? onStoreError : failStrategy;
   const VALID_STORE_ERROR_MODES = ['fail-open', 'fail-closed', 'error'];
   if (
-    onStoreError !== undefined &&
-    typeof onStoreError !== 'function' &&
-    !VALID_STORE_ERROR_MODES.includes(onStoreError)
+    effectiveStoreError !== undefined &&
+    typeof effectiveStoreError !== 'function' &&
+    !VALID_STORE_ERROR_MODES.includes(effectiveStoreError)
   ) {
     throw new TypeError(
-      `SmartRate: 'onStoreError' must be 'fail-open', 'fail-closed', 'error', or a function (received: ${onStoreError}).`
+      `SmartRate: 'onStoreError' must be 'fail-open', 'fail-closed', 'error', or a function (received: ${effectiveStoreError}).`
     );
   }
 
@@ -212,11 +234,8 @@ function validateOptions(options) {
   }
 }
 
-function getRouteIdentifier(req) {
-  if (req.originalUrl) {
-    return req.originalUrl.split('?')[0];
-  }
-  return `${req.baseUrl || ''}${req.path || ''}` || '/';
+function getRouteIdentifier(req, routeNormalizer) {
+  return normalizeRoute(req, routeNormalizer);
 }
 
 function setRateLimitHeaders(res, { limit, remaining, reset, retryAfter }) {
@@ -242,7 +261,8 @@ export function rateLimiter(options = {}) {
     refillIntervalMs = 1000,
     cost = 1,
     timeoutMs,
-    onStoreError,
+    onStoreError: rawOnStoreError,
+    failStrategy,
     circuitBreaker,
     failureThreshold,
     resetTimeoutMs,
@@ -253,13 +273,25 @@ export function rateLimiter(options = {}) {
     routeNormalizer,
     openTelemetry,
     hashClientIdentifier = false,
-    breakerId
+    breakerId,
+    prefix,
+    skip,
+    statusCode,
+    message
   } = options;
 
+  const onStoreError = rawOnStoreError !== undefined ? rawOnStoreError : failStrategy;
   const algorithm = options.algorithm || 'fixed-window';
   let store = options.store || defaultMemoryStore;
   const keyGenerator = options.keyGenerator || defaultKeyGenerator;
-  const collector = metricsCollector || (metrics ? defaultMetricsCollector : null);
+  let collector = metricsCollector;
+  if (!collector) {
+    if (typeof metrics === 'object' && metrics !== null && typeof metrics.recordRequest === 'function') {
+      collector = metrics;
+    } else if (metrics === true) {
+      collector = defaultMetricsCollector;
+    }
+  }
 
   let otelBridge = null;
   if (openTelemetry instanceof OpenTelemetryBridge) {
@@ -349,6 +381,17 @@ export function rateLimiter(options = {}) {
   };
 
   const rateLimiterMiddleware = async function rateLimiterMiddleware(req, res, next) {
+    if (typeof skip === 'function') {
+      try {
+        const shouldSkip = await skip(req);
+        if (shouldSkip) {
+          return next();
+        }
+      } catch (skipErr) {
+        return next(skipErr);
+      }
+    }
+
     let childSpan = null;
     if (otelBridge && typeof otelBridge.startSpan === 'function') {
       childSpan = otelBridge.startSpan('smartrate.consume', {
@@ -369,8 +412,8 @@ export function rateLimiter(options = {}) {
         : (req.ip || req.socket?.remoteAddress || '127.0.0.1');
 
       const method = (req.method || 'GET').toUpperCase();
-      const routeKey = getRouteIdentifier(req);
-      const normalizedRoute = (collector || otelBridge) ? normalizeRoute(req, routeNormalizer) : '/';
+      const normalizedRoute = normalizeRoute(req, routeNormalizer);
+      const routeKey = normalizedRoute;
       const defaultStoreLabel = isResilient
         ? 'resilient'
         : (store instanceof RedisStore ? 'redis' : (store instanceof MemoryStore ? 'memory' : 'custom'));
@@ -379,7 +422,10 @@ export function rateLimiter(options = {}) {
         ? 'redis'
         : (primaryStore instanceof MemoryStore ? 'memory' : (primaryStore?.name || 'primary'));
 
+      const effectivePrefix = prefix || store?.prefix || primaryStore?.prefix || 'limitforge';
+
       const key = buildRateLimitKey({
+        prefix: effectivePrefix,
         algorithm,
         method,
         route: routeKey,
@@ -644,11 +690,21 @@ export function rateLimiter(options = {}) {
         return next();
       }
 
-      return res.status(429).json({
-        success: false,
-        message: 'Too many requests',
-        retryAfter: result.retryAfter
-      });
+      const blockedStatus = typeof statusCode === 'number' ? statusCode : 429;
+      let blockedBody;
+      if (typeof message === 'function') {
+        blockedBody = await message(req, res);
+      } else if (typeof message === 'object' && message !== null) {
+        blockedBody = message;
+      } else {
+        blockedBody = {
+          success: false,
+          message: typeof message === 'string' ? message : 'Too many requests',
+          retryAfter: result.retryAfter
+        };
+      }
+
+      return res.status(blockedStatus).json(blockedBody);
     } catch (err) {
       return next(err);
     } finally {

@@ -33,6 +33,12 @@ describe('SmartRate v1 — Test Suite', () => {
     it('throws TypeError when options is not an object', () => {
       assert.throws(() => rateLimiter(null), { name: 'TypeError' });
     });
+
+    it('throws TypeError when prefix is provided but not a non-empty string', () => {
+      assert.throws(() => rateLimiter({ limit: 5, windowMs: 60000, prefix: '' }), { name: 'TypeError' });
+      assert.throws(() => rateLimiter({ limit: 5, windowMs: 60000, prefix: '   ' }), { name: 'TypeError' });
+      assert.throws(() => rateLimiter({ limit: 5, windowMs: 60000, prefix: 123 }), { name: 'TypeError' });
+    });
   });
 
   describe('Fixed Window Enforcement & Boundary Handling', () => {
@@ -170,6 +176,163 @@ describe('SmartRate v1 — Test Suite', () => {
 
       const res3 = await request(app).get('/api/products?page=3').set('X-Forwarded-For', testIp);
       assert.equal(res3.status, 429);
+    });
+
+    it('allows configuring custom key prefix and passes it to the store', async () => {
+      const app = createTestApp();
+      let consumedKey = null;
+      const customStore = {
+        consume: async ({ key }) => {
+          consumedKey = key;
+          return { allowed: true, count: 1, remaining: 4, reset: 60 };
+        }
+      };
+
+      app.get(
+        '/api/prefixed',
+        rateLimiter({ limit: 5, windowMs: 60_000, prefix: 'tenant-omega', store: customStore }),
+        (req, res) => res.json({ success: true })
+      );
+
+      await request(app).get('/api/prefixed').set('X-Forwarded-For', '10.0.0.1');
+      assert.ok(consumedKey.startsWith('tenant-omega:'), 'Key must start with custom prefix');
+    });
+
+    it('inherits prefix from custom store if not explicitly provided', async () => {
+      const app = createTestApp();
+      let consumedKey = null;
+      const customStore = {
+        prefix: 'inherited-store-prefix',
+        consume: async ({ key }) => {
+          consumedKey = key;
+          return { allowed: true, count: 1, remaining: 4, reset: 60 };
+        }
+      };
+
+      app.get(
+        '/api/inherited-prefix',
+        rateLimiter({ limit: 5, windowMs: 60_000, store: customStore }),
+        (req, res) => res.json({ success: true })
+      );
+
+      await request(app).get('/api/inherited-prefix').set('X-Forwarded-For', '10.0.0.2');
+      assert.ok(consumedKey.startsWith('inherited-store-prefix:'), 'Key must start with store prefix');
+    });
+
+    it('bypasses rate limiting when skip function returns true', async () => {
+      const app = createTestApp();
+      app.get(
+        '/api/skippable',
+        rateLimiter({
+          limit: 1,
+          windowMs: 60_000,
+          skip: (req) => req.headers['x-internal-admin'] === 'secret'
+        }),
+        (req, res) => res.json({ success: true })
+      );
+
+      const testIp = '10.99.0.55';
+
+      // 1st request with admin header -> skipped
+      const res1 = await request(app).get('/api/skippable').set('X-Forwarded-For', testIp).set('x-internal-admin', 'secret');
+      assert.equal(res1.status, 200);
+
+      // 2nd request with admin header -> still skipped (not consuming quota)
+      const res2 = await request(app).get('/api/skippable').set('X-Forwarded-For', testIp).set('x-internal-admin', 'secret');
+      assert.equal(res2.status, 200);
+
+      // 3rd request without admin header -> consumes quota (allowed)
+      const res3 = await request(app).get('/api/skippable').set('X-Forwarded-For', testIp);
+      assert.equal(res3.status, 200);
+
+      // 4th request without admin header -> blocked
+      const res4 = await request(app).get('/api/skippable').set('X-Forwarded-For', testIp);
+      assert.equal(res4.status, 429);
+    });
+
+    it('supports custom statusCode and custom message when blocked', async () => {
+      const app = createTestApp();
+      app.get(
+        '/api/custom-response',
+        rateLimiter({
+          limit: 1,
+          windowMs: 60_000,
+          statusCode: 403,
+          message: { error: 'Rate limit reached, please upgrade plan', code: 'RATE_LIMIT_EXCEEDED' }
+        }),
+        (req, res) => res.json({ success: true })
+      );
+
+      const testIp = '10.99.0.66';
+
+      const res1 = await request(app).get('/api/custom-response').set('X-Forwarded-For', testIp);
+      assert.equal(res1.status, 200);
+
+      const res2 = await request(app).get('/api/custom-response').set('X-Forwarded-For', testIp);
+      assert.equal(res2.status, 403);
+      assert.equal(res2.body.code, 'RATE_LIMIT_EXCEEDED');
+      assert.equal(res2.body.error, 'Rate limit reached, please upgrade plan');
+    });
+
+    it('prevents rate limit bypass via parameterized route paths (e.g. /api/users/:id)', async () => {
+      const app = createTestApp();
+      app.get(
+        '/api/users/:id',
+        rateLimiter({ limit: 2, windowMs: 60_000 }),
+        (req, res) => res.status(200).json({ success: true, id: req.params.id })
+      );
+
+      const testIp = '10.99.0.77';
+
+      const res1 = await request(app).get('/api/users/101').set('X-Forwarded-For', testIp);
+      assert.equal(res1.status, 200);
+      assert.equal(res1.headers['ratelimit-remaining'], '1');
+
+      const res2 = await request(app).get('/api/users/102').set('X-Forwarded-For', testIp);
+      assert.equal(res2.status, 200);
+      assert.equal(res2.headers['ratelimit-remaining'], '0');
+
+      const res3 = await request(app).get('/api/users/103').set('X-Forwarded-For', testIp);
+      assert.equal(res3.status, 429);
+      assert.equal(res3.body.message, 'Too many requests');
+    });
+
+    it('prevents dynamic URL bypass in global middleware via sanitized fallback paths', async () => {
+      const app = createTestApp();
+      app.use(rateLimiter({ limit: 2, windowMs: 60_000 }));
+      app.get('/items/:uuid', (req, res) => res.json({ success: true }));
+
+      const testIp = '10.99.0.88';
+
+      const res1 = await request(app).get('/items/a1b2c3d4-e5f6-7890-abcd-ef1234567890').set('X-Forwarded-For', testIp);
+      assert.equal(res1.status, 200);
+
+      const res2 = await request(app).get('/items/b2c3d4e5-f6a7-8901-bcde-fa2345678901').set('X-Forwarded-For', testIp);
+      assert.equal(res2.status, 200);
+
+      const res3 = await request(app).get('/items/c3d4e5f6-a7b8-9012-cdef-ab3456789012').set('X-Forwarded-For', testIp);
+      assert.equal(res3.status, 429);
+    });
+
+    it('supports custom routeNormalizer for bespoke routing schemes', async () => {
+      const app = createTestApp();
+      app.get(
+        '/tenant/:tenantId/orders/:orderId',
+        rateLimiter({
+          limit: 2,
+          windowMs: 60_000,
+          routeNormalizer: (req) => '/orders'
+        }),
+        (req, res) => res.json({ success: true })
+      );
+
+      const testIp = '10.99.0.99';
+
+      await request(app).get('/tenant/t1/orders/o1').set('X-Forwarded-For', testIp);
+      await request(app).get('/tenant/t2/orders/o2').set('X-Forwarded-For', testIp);
+
+      const blocked = await request(app).get('/tenant/t3/orders/o3').set('X-Forwarded-For', testIp);
+      assert.equal(blocked.status, 429);
     });
   });
 

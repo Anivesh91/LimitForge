@@ -122,7 +122,7 @@ describe('SmartRate — Concurrency & Atomicity Verification', () => {
       }
 
       assert.equal(
-        redisClient.getCounter('smartrate:GET:/api/burst-test:10.200.0.1'),
+        redisClient.getCounter('limitforge:GET:/api/burst-test:10.200.0.1'),
         TOTAL_REQUESTS,
         `Expected final Redis counter to be ${TOTAL_REQUESTS}`
       );
@@ -212,7 +212,7 @@ describe('SmartRate — Concurrency & Atomicity Verification', () => {
       }
 
       assert.equal(
-        redisClient.getZsetCount('smartrate:sliding-window:GET:/api/sliding-burst:10.200.0.99'),
+        redisClient.getZsetCount('limitforge:sliding-window:GET:/api/sliding-burst:10.200.0.99'),
         LIMIT,
         `Expected final Redis ZSET cardinality to be ${LIMIT}`
       );

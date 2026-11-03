@@ -27,11 +27,26 @@ export class RedisStore {
       throw new TypeError('SmartRate: Injected Redis client does not appear to be a valid Redis client instance.');
     }
 
+    if (options.prefix !== undefined && (typeof options.prefix !== 'string' || options.prefix.trim().length === 0)) {
+      throw new TypeError("SmartRate: RedisStore 'prefix' must be a non-empty string.");
+    }
+
     this.client = options.client;
+    this.prefix = typeof options.prefix === 'string' ? options.prefix.trim() : undefined;
     this.script = FIXED_WINDOW_LUA;
     this.fixedScript = FIXED_WINDOW_LUA;
     this.slidingScript = SLIDING_WINDOW_LUA;
     this.tokenBucketScript = TOKEN_BUCKET_LUA;
+  }
+
+  _resolveKey(key) {
+    if (!this.prefix) {
+      return key;
+    }
+    if (key.startsWith(`${this.prefix}:`)) {
+      return key;
+    }
+    return `${this.prefix}:${key}`;
   }
 
   async _evalFixedScript(key, windowMs) {
@@ -142,7 +157,8 @@ export class RedisStore {
   }
 
   async _consumeTokenBucket({ key, capacity, refillRate, refillIntervalMs = 1000, cost = 1, now }) {
-    const rawResult = await this._evalTokenBucketScript(key, now, capacity, refillRate, refillIntervalMs, cost);
+    const storeKey = this._resolveKey(key);
+    const rawResult = await this._evalTokenBucketScript(storeKey, now, capacity, refillRate, refillIntervalMs, cost);
     const [rawAllowed, rawRemaining, rawReset, rawRetryAfter] = Array.isArray(rawResult)
       ? rawResult
       : [1, capacity - cost, 1, 0];
@@ -162,7 +178,8 @@ export class RedisStore {
   }
 
   async _consumeFixedWindow({ key, limit, windowMs }) {
-    const rawResult = await this._evalFixedScript(key, windowMs);
+    const storeKey = this._resolveKey(key);
+    const rawResult = await this._evalFixedScript(storeKey, windowMs);
     const [rawCount, rawTtlMs] = Array.isArray(rawResult) ? rawResult : [1, windowMs];
 
     const count = Number(rawCount);
@@ -186,10 +203,11 @@ export class RedisStore {
   }
 
   async _consumeSlidingWindow({ key, limit, windowMs, now }) {
+    const storeKey = this._resolveKey(key);
     const uniqueId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2, 10);
     const member = `${now}:${uniqueId}`;
 
-    const rawResult = await this._evalSlidingScript(key, now, windowMs, limit, member);
+    const rawResult = await this._evalSlidingScript(storeKey, now, windowMs, limit, member);
     const [rawAllowed, rawCount, rawOldestScore] = Array.isArray(rawResult) ? rawResult : [1, 1, now];
 
     const allowed = Number(rawAllowed) === 1;

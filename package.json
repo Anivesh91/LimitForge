@@ -32,6 +32,7 @@
     "demo:stack": "node examples/observability-stack/server.js",
     "demo:simulate": "node examples/observability-stack/simulate-traffic.js",
     "benchmark": "node scripts/benchmark.js",
+    "typecheck": "tsc --noEmit",
     "test": "node --test"
   },
   "keywords": [
@@ -75,9 +76,12 @@
     }
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.6",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "redis": "^6.2.1",
-    "supertest": "^7.0.0"
+    "supertest": "^7.0.0",
+    "typescript": "^7.0.2"
   }
 }

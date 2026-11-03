@@ -46,6 +46,60 @@ describe('SmartRate — RedisStore Unit Tests', () => {
     assert.ok(typeof store.script === 'string' && store.script.includes('INCR'));
   });
 
+  describe('Configurable Key Prefix Support', () => {
+    it('sets and exposes custom prefix on RedisStore instance', () => {
+      const mockClient = { eval: async () => [1, 60000] };
+      const store = new RedisStore({ client: mockClient, prefix: 'my-app' });
+      assert.equal(store.prefix, 'my-app');
+    });
+
+    it('throws TypeError if prefix is provided but not a non-empty string', () => {
+      const mockClient = { eval: async () => [1, 60000] };
+      assert.throws(() => new RedisStore({ client: mockClient, prefix: '' }), {
+        name: 'TypeError',
+        message: /prefix/
+      });
+      assert.throws(() => new RedisStore({ client: mockClient, prefix: '   ' }), {
+        name: 'TypeError',
+        message: /prefix/
+      });
+      assert.throws(() => new RedisStore({ client: mockClient, prefix: 123 }), {
+        name: 'TypeError',
+        message: /prefix/
+      });
+    });
+
+    it('prepends configured prefix to redis keys if not already prefixed', async () => {
+      let evalParams = null;
+      const mockClient = {
+        eval: async (script, options) => {
+          evalParams = { script, options };
+          return [1, 60000];
+        }
+      };
+
+      const store = new RedisStore({ client: mockClient, prefix: 'my-service' });
+      await store.consume({ key: 'user:42', limit: 5, windowMs: 60_000 });
+
+      assert.equal(evalParams.options.keys[0], 'my-service:user:42');
+    });
+
+    it('avoids double-prefixing if key already has the configured prefix', async () => {
+      let evalParams = null;
+      const mockClient = {
+        eval: async (script, options) => {
+          evalParams = { script, options };
+          return [1, 60000];
+        }
+      };
+
+      const store = new RedisStore({ client: mockClient, prefix: 'my-service' });
+      await store.consume({ key: 'my-service:user:42', limit: 5, windowMs: 60_000 });
+
+      assert.equal(evalParams.options.keys[0], 'my-service:user:42');
+    });
+  });
+
   describe('Atomic Lua State Execution', () => {
     it('executes Lua script via client.eval with keys and arguments', async () => {
       let evalParams = null;

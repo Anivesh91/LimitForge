@@ -37,13 +37,28 @@ export function normalizeRoute(req, customNormalizer) {
     return '/';
   }
 
-  if (req.route && typeof req.route.path === 'string') {
+  if (req.route) {
     const base = req.baseUrl || '';
-    const route = req.route.path;
-    const combined = `${base}${route}`.replace(/\/+/g, '/');
-    return combined || '/';
+    let routePath = '';
+    if (typeof req.route.path === 'string') {
+      routePath = req.route.path;
+    } else if (req.route.path instanceof RegExp) {
+      routePath = req.route.path.toString();
+    } else if (Array.isArray(req.route.path)) {
+      routePath = req.route.path.join('|');
+    }
+    if (routePath) {
+      const combined = `${base}${routePath}`.replace(/\/+/g, '/');
+      return combined || '/';
+    }
   }
 
-  const fallbackPath = `${req.baseUrl || ''}${req.path || req.originalUrl || '/'}`;
+  let fallbackPath = '/';
+  if (req.originalUrl) {
+    fallbackPath = req.originalUrl.split('?')[0];
+  } else if (req.baseUrl || req.path) {
+    fallbackPath = `${req.baseUrl || ''}${req.path || ''}`;
+  }
+
   return sanitizePath(fallbackPath);
 }

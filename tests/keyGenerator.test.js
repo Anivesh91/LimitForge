@@ -338,7 +338,7 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
         route: '/api/checkout',
         clientIdentifier: 'user_12345'
       });
-      assert.equal(key, 'smartrate:token-bucket:POST:/api/checkout:user_12345');
+      assert.equal(key, 'limitforge:token-bucket:POST:/api/checkout:user_12345');
     });
 
     it('hashes pathological identifiers without collisions from truncation', () => {
@@ -359,7 +359,7 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
       assert.equal(storedId.length, 64);
       assert.match(storedId, /^[0-9a-f]{64}$/);
       assert.notEqual(key, otherKey);
-      assert.ok(key.length <= 'smartrate:GET:/test:'.length + MAX_IDENTIFIER_LENGTH);
+      assert.ok(key.length <= 'limitforge:GET:/test:'.length + MAX_IDENTIFIER_LENGTH);
 
       const customHasher = () => 'z'.repeat(10_000);
       const customKey = buildRateLimitKey({
@@ -408,7 +408,7 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
         clientIdentifier: 'my-sensitive-token',
         hashClientIdentifier: customHasher
       });
-      assert.equal(key, 'smartrate:GET:/custom:custom_my-se');
+      assert.equal(key, 'limitforge:GET:/custom:custom_my-se');
       assert.equal(receivedIdentifier, 'my-sensitive-token');
     });
 
