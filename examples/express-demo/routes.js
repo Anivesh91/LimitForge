@@ -8,7 +8,7 @@ import {
 } from './controllers.js';
 
 const router = Router();
-const REDIS_URL = process.env.REDIS_URL;
+const REDIS_URL = process.env.NODE_ENV !== 'test' ? process.env.REDIS_URL : null;
 
 let sharedStore;
 let redisClient = null;
@@ -89,5 +89,12 @@ router.get('/status', (req, res) => {
     clientIp: req.ip
   });
 });
+
+export async function closeRedisClient() {
+  if (redisClient && redisClient.isOpen) {
+    await redisClient.quit().catch(() => {});
+    redisClient = null;
+  }
+}
 
 export default router;

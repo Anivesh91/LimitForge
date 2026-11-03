@@ -1,9 +1,9 @@
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import request from 'supertest';
 import express from 'express';
 import { rateLimiter } from '../src/index.js';
-import demoRoutes from '../examples/express-demo/routes.js';
+import demoRoutes, { closeRedisClient } from '../examples/express-demo/routes.js';
 import { cleanupExpiredRecords } from '../src/limiter/rateLimiter.js';
 
 function createTestApp() {
@@ -277,5 +277,11 @@ describe('SmartRate v1 — Test Suite', () => {
       assert.equal(res.status, 500);
       assert.equal(res.body.error, 'Redis connection lost');
     });
+  });
+
+  after(async () => {
+    if (typeof closeRedisClient === 'function') {
+      await closeRedisClient();
+    }
   });
 });
