@@ -1,0 +1,155 @@
+# Resilience & Failure Handling
+
+In distributed systems, the central rate-limiting store (such as Redis) can become slow, partitioned, or completely unavailable. Without defensive resilience guards, a Redis outage cascades into application-wide HTTP 504 gateway timeouts or total service disruption.
+
+**LimitForge** provides production-grade fault tolerance through four interlocking resilience layers:
+1. **Store Timeout Guard**
+2. **Configurable Failure Policies**
+3. **Circuit Breaker Engine**
+4. **Dual-Store Automatic Failover (`ResilientStore`)**
+
+---
+
+## 1. Resilience Architecture Overview
+
+```mermaid
+flowchart TD
+    Req([Incoming HTTP Request]) --> Limiter[LimitForge Middleware]
+    Limiter --> BreakerCheck{Circuit Breaker State?}
+
+    BreakerCheck -->|"CLOSED (Normal)"| RunPrimary[Call primaryStore with timeoutMs Guard]
+    RunPrimary --> PrimarySuccess{Success?}
+    PrimarySuccess -->|"Yes"| NormalResp[Set RateLimit-* Headers<br/>degraded: false]
+    NormalResp --> NextHandler[Allow Request<br/>Continue to Route Handler]
+
+    PrimarySuccess -->|"Timeout / Error"| RecordFail[Record Failure in Circuit Breaker]
+    RecordFail --> FallbackHop[Failover to fallbackStore]
+
+    BreakerCheck -->|"OPEN (Tripped)"| SkipPrimary[Bypass primaryStore<br/>Zero Network Hammering]
+    SkipPrimary --> FallbackHop
+
+    BreakerCheck -->|"HALF_OPEN (Probing)"| CanaryCheck{Canary Probe In-Flight?}
+    CanaryCheck -->|"No (This request is canary)"| ProbePrimary[Execute Probe on primaryStore]
+    ProbePrimary --> ProbeSuccess{Probe Succeeded?}
+    ProbeSuccess -->|"Yes"| ResetBreaker[Trip to CLOSED<br/>Resume Normal Traffic]
+    ResetBreaker --> NormalResp
+    ProbeSuccess -->|"No"| ReTripBreaker[Trip to OPEN<br/>Restart Cooldown Timer]
+    ReTripBreaker --> FallbackHop
+    CanaryCheck -->|"Yes (Another request probing)"| DivertToFallback[Divert to fallbackStore]
+    DivertToFallback --> FallbackHop
+
+    FallbackHop --> LocalEval[Evaluate fallbackStore Quota]
+    LocalEval --> LocalAllowed{Local Quota Available?}
+    LocalAllowed -->|"Yes"| DegradedResp[Set RateLimit-* Headers<br/>RateLimit-Degraded: true]
+    DegradedResp --> NextHandler
+    LocalAllowed -->|"No"| Reject429[Set RateLimit-Degraded: true<br/>HTTP 429 Too Many Requests]
+```
+
+---
+
+## 2. Store Timeout Guard (`timeoutMs`)
+
+If Redis experiences high CPU load, network latency, or an unreachable socket, queries can stall indefinitely.
+
+- The `timeoutMs` option (default: `250ms`) wraps every store operation in an active timer guard via `withTimeout()`.
+- If the store does not return within `timeoutMs`, the operation is aborted and raises a `StoreTimeoutError`.
+- Active timers are automatically cleared when operations resolve within the threshold to prevent timer leaks.
+
+```javascript
+import { rateLimiter, RedisStore } from 'limitforge';
+
+const limiter = rateLimiter({
+  store: new RedisStore({ client: redisClient }),
+  timeoutMs: 100, // Bound store latency to 100ms
+  limit: 100,
+  windowMs: 60000
+});
+```
+
+---
+
+## 3. Store Failure Policies (`onStoreError`)
+
+When a standalone store (without a fallback) fails or times out, `onStoreError` dictates the recovery behavior:
+
+| Policy | Behavior | HTTP Status | Response Header | Use Case |
+| :--- | :--- | :---: | :--- | :--- |
+| **`next(err)`** *(default)* | Error is forwarded to Express error pipeline (`next(storeError)`). | Application-defined | None | Strict environments requiring upstream alert handling. |
+| **`'fail-open'`** | Rate limiting is bypassed cleanly for this request (`next()`). | Downstream route | `RateLimit-Degraded: true` | Maximum service availability (prioritize uptime over strict quota). |
+| **`'fail-closed'`** | Rejects the request with dynamic `Retry-After`. | `HTTP 503 Service Unavailable` | `RateLimit-Degraded: true`<br/>`Retry-After: <cooldown>` | High-value or resource-intensive services where backend must be shielded. |
+| **Custom function** | `(err, req, res, next) => { ... }` | Custom | Custom | Custom error logging, Sentry/Datadog reporting, or fallback routing. |
+
+---
+
+## 4. Circuit Breaker Engine (`CircuitBreaker`)
+
+The `CircuitBreaker` implements a 3-state finite state machine protecting upstream stores from repeated hammering during persistent outages:
+
+### State Transitions
+
+```text
+    ┌──────────────────────────────────────────────┐
+    │                                              │
+    ▼                                              │
+┌────────┐   consecutive failures >= threshold   ┌──────┐
+│ CLOSED │ ────────────────────────────────────> │ OPEN │
+└────────┘                                       └──────┘
+    ▲                                               │
+    │ probe successful                              │ cooldown elapsed
+    │                                               ▼
+    │                                       ┌───────────┐
+    └────────────────────────────────────── │ HALF_OPEN │
+              probe failed                  └───────────┘
+```
+
+1. **`CLOSED` (Normal Operation):** All requests route directly to the primary store.
+2. **`OPEN` (Tripped Outage):** If failures reach `failureThreshold` (default: 5), the breaker trips to `OPEN`. Primary store calls are immediately short-circuited without network overhead for `resetTimeoutMs` (default: 30,000ms).
+3. **`HALF_OPEN` (Canary Recovery):** Once the reset cooldown elapses, the breaker enters `HALF_OPEN`. It dispatches exactly **one single-flight canary probe** to the primary store:
+   - If the canary succeeds, the breaker resets to `CLOSED`.
+   - If the canary fails, the breaker re-trips to `OPEN` and restarts the cooldown timer.
+   - Any concurrent requests arriving while the canary probe is in-flight are diverted safely to the fallback store.
+
+### Lazy Cooldown Evaluation
+Unlike naive circuit breakers that maintain persistent `setInterval` background timers, LimitForge evaluates state transitions lazily on-demand upon incoming requests. This ensures zero idle event-loop overhead and zero timer retention.
+
+---
+
+## 5. Dual-Store Fallback (`ResilientStore`)
+
+`ResilientStore` wraps a primary store (`RedisStore`) and a secondary fallback store (`MemoryStore`):
+
+```javascript
+import { createClient } from 'redis';
+import { rateLimiter, RedisStore, MemoryStore, ResilientStore } from 'limitforge';
+
+const redisClient = createClient({ url: 'redis://localhost:6379' });
+await redisClient.connect();
+
+const resilientStore = new ResilientStore({
+  primaryStore: new RedisStore({ client: redisClient }),
+  fallbackStore: new MemoryStore(),
+  timeoutMs: 150,
+  failureThreshold: 3,
+  resetTimeoutMs: 15000
+});
+
+app.use(rateLimiter({
+  store: resilientStore,
+  limit: 100,
+  windowMs: 60000
+}));
+```
+
+### Observability During Degradation
+Whenever `ResilientStore` falls back to the secondary store:
+- HTTP response header `RateLimit-Degraded: true` is automatically attached.
+- `req.rateLimit` metadata object is exposed to downstream handlers:
+  ```javascript
+  app.get('/api/resource', (req, res) => {
+    if (req.rateLimit.degraded) {
+      console.warn(`Serving degraded request: primary failed with ${req.rateLimit.primaryError.message}`);
+    }
+    res.json({ data: 'resource' });
+  });
+  ```
+- Prometheus metric `smartrate_degraded_requests_total` is incremented.
