@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [8.0.2] - 2026-11-04
+
+### Changed
+- **Documentation Restructure**: Reorganized the main README into a concise 200-line developer guide, shifting deep architectural and operational details into modular guides (`docs/architecture.md`, `docs/resilience.md`, `docs/observability.md`, and `docs/PERFORMANCE_REPORT.md`).
+- **Technical Terminology & Semantics**: Grounded rate-limiting definitions from coarse DDoS prevention to application-level API request throttling; updated architecture diagrams to accurately reflect middleware route continuation (`next()`).
+- **Telemetry Naming Context**: Clarified default `smartrate_*` metric event namespace for pre-built Grafana/Alertmanager compatibility and documented dual-emitted OpenTelemetry span attributes.
+- **Community Policies**: Formally integrated `SECURITY.md` vulnerability reporting protocol, `CONTRIBUTING.md` developer workflow, and standardized `CHANGELOG.md`.
+
+---
+
 ## [8.0.1] - 2026-10-19
 
 ### Changed
@@ -118,6 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Standard headers: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`.
   - HTTP 429 Too Many Requests response with `Retry-After` header.
 
+[8.0.2]: https://github.com/Anivesh91/LimitForge/compare/v8.0.1...v8.0.2
 [8.0.1]: https://github.com/Anivesh91/LimitForge/compare/v8.0.0...v8.0.1
 [8.0.0]: https://github.com/Anivesh91/LimitForge/compare/v7.0.0...v8.0.0
 [7.0.0]: https://github.com/Anivesh91/LimitForge/compare/v6.0.0...v7.0.0
