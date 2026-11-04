@@ -149,7 +149,7 @@ LimitForge comes with zero-dependency native observability:
 
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:6c14bd6f1b30ff7028d56956470649b6b1a974c56d816ccd744ec0aefe1a9aae -->
+<!-- coderabbit-ai-generated-section:v1:2eb7dcc8d19e3420326d2e515e8db5c4e3e2b2eb5fa0ed5ffe5a459c123ee6f4 -->
 
 For `ResilientStore`, configure `timeoutMs` on the store itself; the middleware option applies to standalone stores.
 
@@ -164,6 +164,8 @@ This changes the default keys for global middleware. Existing per-path Redis cou
 **Redis clock:** Sliding-window and token-bucket operations use the Redis server clock by default; the Redis user must have permission to run `TIME` in the scripts. Direct `RedisStore.consume()` calls may still supply `now` for deterministic testing; overriding it requires all callers to use a consistent clock. Redis server clock adjustments or failover to a server with a different clock can still affect quota timing. Avoid mixing old and new application versions while existing quotas are active, since older versions write application timestamps into the same keys.
 
 **Dynamic fixed windows:** MemoryStore and RedisStore use the latest observed duration for an active window. Redis fixed-window counters use a versioned string: legacy numeric counters migrate on access and may be retained longer because their original start is unknown. The Redis ACL must allow `GET`, `PTTL`, `TIME`, and `SET` in scripts. Stop old instances before migrating; old and new versions cannot share migrated keys. Expired counters cannot be recovered when a later request increases the duration.
+
+**Fractional Redis windows:** Redis uses whole milliseconds, so fractional fixed and sliding window durations and their key TTLs round up. Durations too large for safe millisecond arithmetic are rejected before changing the quota state. Existing fixed-window keys without an expiry still produce an error and need operator review. Previously orphaned sliding-window keys also need review if they are not accessed again.
 
 <!-- /coderabbit-ai-generated:v1 -->
 

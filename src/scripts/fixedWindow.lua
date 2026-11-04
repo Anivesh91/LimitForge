@@ -9,6 +9,9 @@ local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 if not windowMs or windowMs <= 0 or windowMs > 9007199254740991 - now then
     return redis.error_reply("SmartRate: fixed window duration is out of range")
 end
+-- Redis timestamps have millisecond precision; round before arithmetic so
+-- sub-millisecond values cannot disappear when added to an epoch timestamp.
+windowMs = math.ceil(windowMs)
 
 local value = redis.call("GET", key)
 local count = "0"

@@ -35,6 +35,103 @@ describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run re
     }
   });
 
+  for (const algorithm of ['fixed-window', 'sliding-window']) {
+    it(`accepts fractional ${algorithm} windows without leaving unexpired keys`, async (t) => {
+      const client = await connect();
+      const prefix = `limitforge-test-${randomUUID()}`;
+      t.after(async () => {
+        const keys = await client.keys(`${prefix}:*`);
+        if (keys.length) await client.del(keys);
+        client.destroy();
+      });
+      const store = new RedisStore({ client, prefix });
+      for (const windowMs of [1.5, 1000.5]) {
+        const key = `fraction-${windowMs}`;
+        const result = await store.consume({ key, algorithm, limit: 1, windowMs });
+        assert.equal(result.allowed, true);
+        const ttl = await client.pTTL(`${prefix}:${key}`);
+        assert.notEqual(ttl, -1, 'key must have an expiry or already be expired');
+        if (windowMs === 1000.5) {
+          assert.ok(ttl > 0 && ttl <= 1001);
+          assert.equal((await store.consume({ key, algorithm, limit: 1, windowMs })).allowed, false);
+        }
+      }
+
+      const app = express();
+      app.get('/', rateLimiter({ store, algorithm, limit: 1, windowMs: 1000.5 }), (req, res) => res.sendStatus(200));
+      assert.equal((await request(app).get('/')).status, 200);
+      assert.equal((await request(app).get('/')).status, 429);
+    });
+
+    it(`rejects an oversized ${algorithm} window before changing Redis state`, async (t) => {
+      const client = await connect();
+      const prefix = `limitforge-test-${randomUUID()}`;
+      t.after(async () => {
+        const keys = await client.keys(`${prefix}:*`);
+        if (keys.length) await client.del(keys);
+        client.destroy();
+      });
+      const store = new RedisStore({ client, prefix });
+      const fresh = { key: 'fresh', algorithm, limit: 2, windowMs: Number.MAX_VALUE };
+      await assert.rejects(store.consume(fresh), /out of range/);
+      assert.equal(await client.exists(`${prefix}:fresh`), 0);
+
+      const active = { key: 'active', algorithm, limit: 2, windowMs: 60000 };
+      assert.equal((await store.consume(active)).allowed, true);
+      await assert.rejects(store.consume({ ...active, windowMs: Number.MAX_VALUE }), /out of range/);
+      const after = await store.consume(active);
+      assert.equal(after.allowed, true);
+      assert.equal(after.count, 2);
+      assert.ok(await client.pTTL(`${prefix}:active`) > 0);
+    });
+  }
+
+  it('does not discard existing quota for extremely small positive windows', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const now = 1000000000000;
+    // Freeze Redis TIME for the fixed-window script so both operations fall in
+    // the same millisecond without depending on network timing.
+    const fixedClient = {
+      eval(script, options) {
+        const call = 'local clock = redis.call("TIME")';
+        assert.ok(script.includes(call));
+        return client.eval(script.replace(call, 'local clock = {"1000000000", "0"}'), options);
+      }
+    };
+    const fixed = new RedisStore({ client: fixedClient, prefix });
+    await client.set(`${prefix}:tiny-fixed`, `lf1|1|${now}|0`, { PX: 60000 });
+    assert.equal((await fixed.consume({ key: 'tiny-fixed', limit: 1, windowMs: Number.MIN_VALUE })).allowed, false);
+
+    await client.zAdd(`${prefix}:tiny-sliding`, [{ score: now, value: 'prior' }]);
+    await client.pExpire(`${prefix}:tiny-sliding`, 60000);
+    const sliding = new RedisStore({ client, prefix });
+    assert.equal((await sliding.consume({ key: 'tiny-sliding', algorithm: 'sliding-window', limit: 1, windowMs: Number.MIN_VALUE, now })).allowed, false);
+  });
+
+  it('reports retry timing from the rounded sliding window duration', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const now = 1000000000000;
+    await client.zAdd(`${prefix}:retry`, [{ score: now, value: 'prior' }]);
+    await client.pExpire(`${prefix}:retry`, 60000);
+    const result = await new RedisStore({ client, prefix }).consume({
+      key: 'retry', algorithm: 'sliding-window', limit: 1, windowMs: 1000.000001, now
+    });
+    assert.equal(result.allowed, false);
+    assert.equal(result.retryAfter, 2);
+  });
+
   it('shares the global quota across arbitrary paths using Redis', async (t) => {
     const client = await connect();
     const prefix = `limitforge-test-${randomUUID()}`;

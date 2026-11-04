@@ -221,7 +221,7 @@ export class RedisStore {
     const oldestScore = Number(rawOldestScore);
     const remaining = Math.max(0, limit - count);
 
-    const resetMs = (oldestScore + windowMs) - Number(rawServerNow);
+    const resetMs = (oldestScore + Math.ceil(windowMs)) - Number(rawServerNow);
     const resetSeconds = Math.max(1, Math.ceil(resetMs / 1000));
 
     return {

@@ -10,7 +10,14 @@ local windowMs = tonumber(ARGV[2])
 local limit = tonumber(ARGV[3])
 local member = ARGV[4]
 
-local cutoff = now - windowMs
+-- Redis expiry uses whole milliseconds. Validate before modifying the sorted set
+-- and round up so a fractional window cannot leave a key without a TTL.
+if not windowMs or windowMs <= 0 or windowMs > 9007199254740991 - math.max(0, now) then
+    return redis.error_reply("SmartRate: sliding window duration is out of range")
+end
+local ttlMs = math.max(1, math.ceil(windowMs))
+
+local cutoff = now - ttlMs
 
 redis.call("ZREMRANGEBYSCORE", key, "-inf", cutoff)
 
@@ -26,6 +33,6 @@ end
 local oldest = redis.call("ZRANGE", key, 0, 0, "WITHSCORES")
 local oldestScore = (oldest and #oldest >= 2) and tonumber(oldest[2]) or now
 
-redis.call("PEXPIRE", key, windowMs)
+redis.call("PEXPIRE", key, ttlMs)
 
 return { allowed, currentCount, oldestScore, now }
