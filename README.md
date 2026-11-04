@@ -149,7 +149,7 @@ LimitForge comes with zero-dependency native observability:
 
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:ff27511c34cb060d8f9a2bc223d4ad98c4662dc2b28067d53158040a44b22999 -->
+<!-- coderabbit-ai-generated-section:v1:8ce4fc1b13112faa4078e72aac9ec870a3b9991ba07ea529e576a3d6e07fa9ed -->
 
 For `ResilientStore`, configure `timeoutMs` on the store itself; the middleware option applies to standalone stores.
 
@@ -170,6 +170,8 @@ This changes the default keys for global middleware. Existing per-path Redis cou
 **Key encoding and upgrade:** Key components escape delimiters and percent signs, and hashed identifiers have distinct markers. Simple unambiguous raw keys remain unchanged, but routes, prefixes or identifiers containing escaped characters and hashed identifiers produce different keys. `RedisStore` prefixes containing delimiters are encoded too. Existing affected counters are not migrated: legacy keys can combine multiple identities, so their counts cannot be split safely. During deployment, stop or drain old instances and let affected old quotas expire, or use an external protection mechanism if strict quota continuity is required. Avoid mixing old and new versions against the same store.
 
 A custom `keyGenerator` must uniquely encode its own components (for example, use `JSON.stringify([tenantId, userId])` for string identifiers). Custom hash functions must also avoid mapping different clients to the same output. For direct `RedisStore.consume()` calls, raw and encoded forms of an already-prefixed key are treated as equivalent; use one form consistently and supply unique keys.
+
+**Default store isolation:** Each call to `rateLimiter()` without a `store` creates an independent `MemoryStore`. Reusing the same middleware instance reuses its store. This replaces the previous implicit shared default: applications that relied on separate default limiters sharing a quota must now pass the same store explicitly. Limiters using an explicitly shared store and the same key still share a counter. To isolate different policies on the same shared Redis store, set distinct `prefix` values and use the same prefix for each policy across all application replicas.
 
 <!-- /coderabbit-ai-generated:v1 -->
 

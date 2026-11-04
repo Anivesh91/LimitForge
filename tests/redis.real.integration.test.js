@@ -147,6 +147,24 @@ describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run re
     assert.equal((await request(app).get('/users/bob')).status, 429);
   });
 
+  it('keeps explicitly shared Redis policies isolated with different prefixes', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const settings = { store, limit: 2, windowMs: 60000 };
+    const app = express();
+    app.get('/same', rateLimiter({ ...settings, prefix: 'policy-a' }), rateLimiter({ ...settings, prefix: 'policy-b' }), (req, res) => res.sendStatus(200));
+    assert.equal((await request(app).get('/same')).status, 200);
+    assert.equal((await request(app).get('/same')).status, 200);
+    assert.equal((await request(app).get('/same')).status, 429);
+    assert.equal((await client.keys(`${prefix}:*`)).length, 2);
+  });
+
   it('separates previously colliding routes and clients with an encoded Redis prefix', async (t) => {
     const client = await connect();
     const otherClient = await connect();

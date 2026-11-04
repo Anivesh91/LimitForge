@@ -1,3 +1,13 @@
+function createCleanupTimer(storeRef, intervalMs) {
+  const timer = setInterval(() => {
+    const store = storeRef.deref();
+    if (store) store.cleanupExpiredRecords();
+    else clearInterval(timer);
+  }, intervalMs);
+  if (typeof timer.unref === 'function') timer.unref();
+  return timer;
+}
+
 export class MemoryStore {
   constructor(options = {}) {
     this.store = new Map();
@@ -216,13 +226,7 @@ export class MemoryStore {
 
   _ensureCleanupTimer() {
     if (!this.cleanupInterval) {
-      this.cleanupInterval = setInterval(() => {
-        this.cleanupExpiredRecords();
-      }, this.cleanupIntervalMs);
-
-      if (typeof this.cleanupInterval.unref === 'function') {
-        this.cleanupInterval.unref();
-      }
+      this.cleanupInterval = createCleanupTimer(new WeakRef(this), this.cleanupIntervalMs);
     }
   }
 

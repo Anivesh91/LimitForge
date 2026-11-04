@@ -9,11 +9,26 @@ import { normalizeRoute } from '../utils/routeNormalizer.js';
 import { MetricsCollector, defaultMetricsCollector } from '../telemetry/metricsCollector.js';
 import { OpenTelemetryBridge } from '../telemetry/openTelemetryBridge.js';
 
-const defaultMemoryStore = new MemoryStore();
+const defaultMemoryStores = new Set();
+const defaultStoreRegistry = new FinalizationRegistry((reference) => defaultMemoryStores.delete(reference));
 const attachedBreakerCollectors = new WeakMap();
 
 export function cleanupExpiredRecords() {
-  return defaultMemoryStore.cleanupExpiredRecords();
+  let removed = 0;
+  for (const reference of defaultMemoryStores) {
+    const store = reference.deref();
+    if (store) removed += store.cleanupExpiredRecords();
+    else defaultMemoryStores.delete(reference);
+  }
+  return removed;
+}
+
+function createDefaultMemoryStore() {
+  const store = new MemoryStore();
+  const reference = new WeakRef(store);
+  defaultMemoryStores.add(reference);
+  defaultStoreRegistry.register(store, reference);
+  return store;
 }
 
 const defaultKeyGenerator = (req) => req.ip || req.socket?.remoteAddress || '127.0.0.1';
@@ -288,7 +303,7 @@ export function rateLimiter(options = {}) {
 
   const onStoreError = rawOnStoreError !== undefined ? rawOnStoreError : failStrategy;
   const algorithm = options.algorithm || 'fixed-window';
-  let store = options.store || defaultMemoryStore;
+  let store = options.store || createDefaultMemoryStore();
   const keyGenerator = options.keyGenerator || defaultKeyGenerator;
   let collector = metricsCollector;
   if (!collector) {

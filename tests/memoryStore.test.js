@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { MemoryStore } from '../src/stores/memoryStore.js';
 
 describe('SmartRate — MemoryStore Unit Tests', () => {
@@ -72,6 +74,35 @@ describe('SmartRate — MemoryStore Unit Tests', () => {
     assert.equal(store.store.has('active:1'), true);
 
     store.destroy();
+  });
+
+  it('automatically cleans expired records while the store is in use', async () => {
+    const store = new MemoryStore({ cleanupIntervalMs: 10 });
+    try {
+      store.consume({ key: 'auto-cleanup', limit: 1, windowMs: 1 });
+      await new Promise(resolve => setTimeout(resolve, 60));
+      assert.equal(store.store.has('auto-cleanup'), false);
+    } finally {
+      store.destroy();
+    }
+  });
+
+  it('does not keep an unused store alive solely through its cleanup timer', async () => {
+    const moduleUrl = new URL('../src/stores/memoryStore.js', import.meta.url).href;
+    const program = `
+      import { MemoryStore } from ${JSON.stringify(moduleUrl)};
+      let reference;
+      (() => { const store = new MemoryStore(); reference = new WeakRef(store); })();
+      for (let i = 0; i < 100; i++) {
+        await new Promise(resolve => setImmediate(resolve));
+        global.gc();
+        await new Promise(resolve => setImmediate(resolve));
+        if (!reference.deref()) { console.log('collected'); process.exit(0); }
+      }
+      process.exit(1);
+    `;
+    const { stdout } = await promisify(execFile)(process.execPath, ['--expose-gc', '--input-type=module', '-e', program], { timeout: 10000 });
+    assert.match(stdout, /collected/);
   });
 
   it('retains a fixed-window counter after its duration increases', () => {
