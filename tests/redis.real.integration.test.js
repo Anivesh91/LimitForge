@@ -50,6 +50,137 @@ describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run re
     assert.equal((await request(app).get('/users/bob')).status, 429);
   });
 
+  it('retains a fixed-window quota when a request extends its duration', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const app = express();
+    app.get('/', rateLimiter({
+      store,
+      limit: 2,
+      windowMs: req => req.headers['x-window'] === 'long' ? 7000 : 700
+    }), (req, res) => res.sendStatus(200));
+
+    assert.equal((await request(app).get('/')).status, 200);
+    assert.equal((await request(app).get('/').set('x-window', 'long')).status, 200);
+    const keys = await client.keys(`${prefix}:*`);
+    assert.equal(keys.length, 1);
+    assert.ok(await client.pTTL(keys[0]) > 6000, 'extended window must outlive the original TTL');
+    const blocked = await request(app).get('/').set('x-window', 'long');
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers['ratelimit-remaining'], '0');
+  });
+
+  it('applies shorter windows from the original start and keeps fixed deadlines', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const params = { key: 'shorten', limit: 2, windowMs: 10000 };
+    assert.equal((await store.consume(params)).count, 1);
+    const key = `${prefix}:shorten`;
+    const original = await client.get(key);
+    const [marker, count, start] = original.split('|');
+    await client.set(key, `${marker}|${count}|${Number(start) - 5000}|0`, { PX: 10000 });
+    const reset = await store.consume({ ...params, windowMs: 1000 });
+    assert.equal(reset.allowed, true);
+    assert.equal(reset.count, 1);
+
+    const firstTtl = await client.pTTL(key);
+    await store.consume({ ...params, windowMs: 1000 });
+    assert.ok(await client.pTTL(key) <= firstTtl, 'ordinary traffic must not extend a fixed window');
+  });
+
+  it('migrates legacy numeric counters without losing counts or shortening their TTL', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const key = `${prefix}:legacy`;
+    await client.set(key, '2', { PX: 5000 });
+    const result = await store.consume({ key: 'legacy', limit: 3, windowMs: 1000 });
+    assert.equal(result.count, 3);
+    assert.equal(result.allowed, true);
+    assert.ok(await client.pTTL(key) > 4000);
+    assert.match(await client.get(key), /^lf1\|3\|\d+\|\d+$/);
+    assert.equal((await store.consume({ key: 'legacy', limit: 3, windowMs: 1000 })).allowed, false);
+    await assert.rejects(client.incr(key));
+
+    await client.set(`${prefix}:legacy-short`, '2', { PX: 5000 });
+    const extended = await store.consume({ key: 'legacy-short', limit: 3, windowMs: 60000 });
+    assert.equal(extended.count, 3);
+    assert.ok(await client.pTTL(`${prefix}:legacy-short`) > 50000);
+  });
+
+  it('preserves legacy keys when migration cannot safely proceed', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    await client.set(`${prefix}:orphan`, '7');
+    await assert.rejects(store.consume({ key: 'orphan', limit: 10, windowMs: 1000 }), /without an expiration TTL/);
+    assert.equal(await client.get(`${prefix}:orphan`), '7');
+    await client.set(`${prefix}:overflow`, '9223372036854775807', { PX: 5000 });
+    await assert.rejects(store.consume({ key: 'overflow', limit: 10, windowMs: 1000 }), /overflow/);
+    assert.equal(await client.get(`${prefix}:overflow`), '9223372036854775807');
+  });
+
+  it('preserves signed and high-value Redis counters during migration', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    await client.set(`${prefix}:negative`, '-2', { PX: 5000 });
+    assert.equal((await store.consume({ key: 'negative', limit: 10, windowMs: 1000 })).count, -1);
+    assert.equal((await store.consume({ key: 'negative', limit: 10, windowMs: 1000 })).count, 0);
+    await client.set(`${prefix}:large`, '9007199254740992', { PX: 5000 });
+    await store.consume({ key: 'large', limit: 10, windowMs: 1000 });
+    assert.match(await client.get(`${prefix}:large`), /^lf1\|9007199254740993\|\d+\|\d+$/);
+    await client.set(`${prefix}:near-overflow`, '9223372036854775806', { PX: 5000 });
+    const nearOverflow = await store.consume({ key: 'near-overflow', limit: 10, windowMs: 1000 });
+    assert.equal(nearOverflow.allowed, false);
+    assert.ok(nearOverflow.count > 0);
+  });
+
+  it('migrates an existing counter atomically across Redis clients', async (t) => {
+    const clientA = await connect();
+    const clientB = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await clientA.keys(`${prefix}:*`);
+      if (keys.length) await clientA.del(keys);
+      clientA.destroy();
+      clientB.destroy();
+    });
+    await clientA.set(`${prefix}:legacy`, '2', { PX: 5000 });
+    const stores = [new RedisStore({ client: clientA, prefix }), new RedisStore({ client: clientB, prefix })];
+    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => stores[i % 2].consume({ key: 'legacy', limit: 10, windowMs: 60000 })));
+    assert.equal(results.filter(result => result.allowed).length, 8);
+    assert.equal(Math.max(...results.map(result => result.count)), 22);
+    assert.match(await clientA.get(`${prefix}:legacy`), /^lf1\|22\|\d+\|\d+$/);
+  });
+
   it('uses Redis time for distributed windows even when application clocks differ', async (t) => {
     const clientA = await connect();
     const clientB = await connect();
@@ -158,6 +289,6 @@ describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run re
     }
     const keys = await client.keys(`${prefix}:*`);
     assert.equal(keys.length, 1);
-    assert.equal(await client.get(keys[0]), '1');
+    assert.match(await client.get(keys[0]), /^lf1\|1\|\d+\|\d+$/);
   });
 });

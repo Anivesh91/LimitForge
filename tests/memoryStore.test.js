@@ -74,6 +74,35 @@ describe('SmartRate — MemoryStore Unit Tests', () => {
     store.destroy();
   });
 
+  it('retains a fixed-window counter after its duration increases', () => {
+    const store = new MemoryStore();
+    try {
+      const key = 'dynamic:longer';
+      assert.equal(store.consume({ key, limit: 2, windowMs: 1000, now: 1000 }).allowed, true);
+      assert.equal(store.consume({ key, limit: 2, windowMs: 10000, now: 1500 }).allowed, true);
+      assert.equal(store.cleanupExpiredRecords(2001), 0);
+      assert.equal(store.consume({ key, limit: 2, windowMs: 10000, now: 2001 }).allowed, false);
+      assert.equal(store.cleanupExpiredRecords(10999), 0);
+      assert.equal(store.cleanupExpiredRecords(11000), 1);
+      assert.equal(store.consume({ key, limit: 2, windowMs: 10000, now: 11000 }).allowed, true);
+    } finally {
+      store.destroy();
+    }
+  });
+
+  it('updates cleanup after a blocked request extends the window', () => {
+    const store = new MemoryStore();
+    try {
+      const key = 'dynamic:blocked';
+      store.consume({ key, limit: 1, windowMs: 1000, now: 1000 });
+      assert.equal(store.consume({ key, limit: 1, windowMs: 10000, now: 1500 }).allowed, false);
+      assert.equal(store.cleanupExpiredRecords(2001), 0);
+      assert.equal(store.consume({ key, limit: 1, windowMs: 10000, now: 2001 }).allowed, false);
+    } finally {
+      store.destroy();
+    }
+  });
+
   it('isolates state between different keys', async () => {
     const store = new MemoryStore();
 

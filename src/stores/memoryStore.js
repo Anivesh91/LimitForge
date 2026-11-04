@@ -50,12 +50,12 @@ export class MemoryStore {
       };
     }
 
+    // Cleanup must use the most recently observed policy for this window.
+    record.windowMs = windowMs;
     const elapsed = now - record.windowStart;
     if (elapsed >= windowMs) {
       record.count = 1;
       record.windowStart = now;
-      record.windowMs = windowMs;
-
       return {
         allowed: true,
         count: 1,

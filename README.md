@@ -149,7 +149,7 @@ LimitForge comes with zero-dependency native observability:
 
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:18bf88a8f6d5d7a03fd6128bff7206505f5e480062cf8565156132a039052014 -->
+<!-- coderabbit-ai-generated-section:v1:6c14bd6f1b30ff7028d56956470649b6b1a974c56d816ccd744ec0aefe1a9aae -->
 
 For `ResilientStore`, configure `timeoutMs` on the store itself; the middleware option applies to standalone stores.
 
@@ -162,6 +162,8 @@ Automatic route-level detection works for limiters attached directly to Express 
 This changes the default keys for global middleware. Existing per-path Redis counters are not migrated into the new shared quota. Plan for a quota reset and avoid mixing old and new versions when strict quotas are required; alternatively, use `includeRoute: true` to retain prior keying behavior.
 
 **Redis clock:** Sliding-window and token-bucket operations use the Redis server clock by default; the Redis user must have permission to run `TIME` in the scripts. Direct `RedisStore.consume()` calls may still supply `now` for deterministic testing; overriding it requires all callers to use a consistent clock. Redis server clock adjustments or failover to a server with a different clock can still affect quota timing. Avoid mixing old and new application versions while existing quotas are active, since older versions write application timestamps into the same keys.
+
+**Dynamic fixed windows:** MemoryStore and RedisStore use the latest observed duration for an active window. Redis fixed-window counters use a versioned string: legacy numeric counters migrate on access and may be retained longer because their original start is unknown. The Redis ACL must allow `GET`, `PTTL`, `TIME`, and `SET` in scripts. Stop old instances before migrating; old and new versions cannot share migrated keys. Expired counters cannot be recovered when a later request increases the duration.
 
 <!-- /coderabbit-ai-generated:v1 -->
 
