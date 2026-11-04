@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [8.1.0] - 2026-11-05
+
+### Added
+- **Global Quota Sharing (`includeRoute`)**: Added `includeRoute` option to `rateLimiter()` (defaults to `false`), allowing global API rate limit quotas to be shared seamlessly across multiple route paths while retaining per-route isolation when desired.
+- **Direct Prometheus Collector Integration**: `createPrometheusExporter()` now supports direct ingestion of pre-configured `MetricsCollector` instances alongside standard options objects.
+
+### Fixed
+- **Distributed Clock Drift Protection**: Updated Redis sliding window and token bucket Lua scripts to leverage Redis server time (`redis.call('TIME')`) instead of client timestamps, preventing desynchronization in multi-instance clusters.
+- **Dynamic Fixed-Window Durations**: Fixed fixed-window duration handling in both `MemoryStore` and `RedisStore` when dynamic policy functions return runtime window values.
+- **Redis Window Duration Rounding & Validation**: Ensured millisecond window durations are safely rounded up to whole seconds (`Math.ceil`) to prevent sub-second zero TTLs and rejected unsafe/non-positive duration values before issuing Redis commands.
+- **Key Separation & Collision Hardening**: Escaped key separators (`:`) and components to eliminate ambiguity and prevent cross-tenant/cross-route key collision attacks.
+- **Store Isolation & Memory Leak Prevention**: Isolated default limiter stores per middleware instance and resolved potential memory retention issues for unreferenced limiters.
+- **Token Bucket Custom Refill Intervals**: Correctly accounted for custom `refillIntervalMs` intervals when calculating Redis token refill rates.
+- **Resilience Store Fallback Timeout**: Enforced hard timeout guards on `ResilientStore` fallback operations to prevent indefinite hanging when upstream recovery fails.
+- **OpenTelemetry Span Isolation**: Protected request pipeline from OpenTelemetry span creation or recording errors.
+- **Metric Overflow & Cardinality Safeguards**: Preserved counter totals and handled gauge overflow within bounded series caps, dropping stale series safely under memory pressure.
+- **TypeScript Declarations Alignment**: Updated `index.d.ts` ambient types to match runtime signatures for `createPrometheusExporter`, `recordStoreDuration`, `recordCircuitBreakerState`, and middleware zero-config defaults.
+- **Cross-Platform CRLF Compatibility**: Standardized test regexes for Windows and POSIX line endings across telemetry test suites.
+
+---
+
 ## [8.0.2] - 2026-11-04
 
 ### Changed
@@ -128,6 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Standard headers: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`.
   - HTTP 429 Too Many Requests response with `Retry-After` header.
 
+[8.1.0]: https://github.com/Anivesh91/LimitForge/compare/v8.0.2...v8.1.0
 [8.0.2]: https://github.com/Anivesh91/LimitForge/compare/v8.0.1...v8.0.2
 [8.0.1]: https://github.com/Anivesh91/LimitForge/compare/v8.0.0...v8.0.1
 [8.0.0]: https://github.com/Anivesh91/LimitForge/compare/v7.0.0...v8.0.0
