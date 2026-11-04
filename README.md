@@ -115,7 +115,14 @@ app.listen(3000, () => console.log('Server running on http://localhost:3000'));
 
 When central stores (Redis) fail, slow down, or become network-partitioned, LimitForge prevents cascading API outages:
 
-- **Store Timeout Guard (`timeoutMs`)**: Bounds store execution (default: 250ms). Stalled queries abort promptly instead of queuing indefinitely.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:d1c5eb220eeefb60cbce0f571a673e57619f9b7f1ec110cda2bed8cf6cefb2f8 -->
+
+The timeout bounds how long middleware waits for a store. A timed-out operation may still finish and change store state.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 - **Circuit Breaker Engine (`CircuitBreaker`)**: Automatically trips to `OPEN` after repeated store failures, short-circuiting network traffic to protect failing infrastructure.
 - **Dual-Store Failover (`ResilientStore`)**: Transparently diverts traffic to a local `MemoryStore` during Redis outages, tagging responses with `RateLimit-Degraded: true`.
 - **Store Failure Policies (`onStoreError`)**: Choose between `next(err)` (default), `'fail-open'` (bypass quota), or `'fail-closed'` (HTTP 503).
@@ -139,6 +146,14 @@ LimitForge comes with zero-dependency native observability:
 ---
 
 ## Configuration Reference
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:37cc4ca4255e81865a56461cff41c70294bc008ad58c676c16b8289059f167dd -->
+
+For `ResilientStore`, configure `timeoutMs` on the store itself; the middleware option applies to standalone stores.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ```typescript
 const limiter = rateLimiter(options);
@@ -183,7 +198,13 @@ Runnable examples located in the `examples/` directory:
 
 ## Testing & Benchmarks
 
-Run the automated test suite (268 unit and integration tests across 21 suites):
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:30064d66b61646e928a5d2c861ef056b2e80b09c6fe5a0a41a095a77fc1b30dd -->
+
+Run the automated test suite. To include tests against a real Redis instance, set `REDIS_URL` (for example, `redis://localhost:6379`); those tests are skipped when it is unset.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ```bash
 npm test

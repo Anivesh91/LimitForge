@@ -260,7 +260,7 @@ export function rateLimiter(options = {}) {
     refillRate,
     refillIntervalMs = 1000,
     cost = 1,
-    timeoutMs,
+    timeoutMs = 250,
     onStoreError: rawOnStoreError,
     failStrategy,
     circuitBreaker,
@@ -490,7 +490,7 @@ export function rateLimiter(options = {}) {
 
       try {
         const consumeOp = () => {
-          const storeOperation = store.consume({
+          const params = {
             key,
             limit: resolvedLimit,
             windowMs: resolvedWindowMs,
@@ -499,8 +499,11 @@ export function rateLimiter(options = {}) {
             refillRate: resolvedRefillRate,
             refillIntervalMs: resolvedRefillIntervalMs,
             cost: requestCost
-          });
-          return (timeoutMs === undefined || isResilient) ? storeOperation : withTimeout(storeOperation, timeoutMs);
+          };
+          const storeOperation = isResilient
+            ? store.consume(params, { failOnPrimaryError: onStoreError === 'fail-closed' })
+            : store.consume(params);
+          return isResilient ? storeOperation : withTimeout(storeOperation, timeoutMs);
         };
 
         result = (breaker && !isResilient) ? await breaker.execute(consumeOp) : await consumeOp();

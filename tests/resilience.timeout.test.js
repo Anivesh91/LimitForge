@@ -98,25 +98,22 @@ describe('SmartRate v6 — Day 1: Store Timeout & Failure Policies', () => {
   });
 
   describe('4. Fail-Open Strategy (Store Error & Timeout Bypass)', () => {
-    it('waits for the store operation when timeoutMs is omitted', async () => {
+    it('uses a 250ms timeout when timeoutMs is omitted', async () => {
       const slowStore = {
-        async consume() {
-          await new Promise((resolve) => setTimeout(resolve, 275));
-          return { allowed: true, remaining: 4, reset: 60 };
-        }
+        consume: () => new Promise(() => {})
       };
 
       const app = express();
       app.get(
         '/no-store-timeout',
-        rateLimiter({ limit: 5, windowMs: 60_000, store: slowStore }),
+        rateLimiter({ limit: 5, windowMs: 60_000, store: slowStore, onStoreError: 'fail-closed' }),
         (req, res) => res.status(200).json({ status: 'ok' })
       );
 
       const res = await request(app).get('/no-store-timeout');
 
-      assert.equal(res.status, 200);
-      assert.equal(res.body.status, 'ok');
+      assert.equal(res.status, 503);
+      assert.equal(res.headers['ratelimit-degraded'], 'true');
     });
 
     it('allows request through with 200 OK and RateLimit-Degraded header on store rejection', async () => {
