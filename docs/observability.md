@@ -87,6 +87,14 @@ Uncontrolled label cardinality is the leading cause of memory exhaustion in Prom
 3. **Hard Series Bound (`maxSeries`)**:
    `MetricsCollector` enforces an in-process maximum series limit (default: 1,000 series per metric). If arbitrary random paths are flooded (e.g., fuzzing attacks), excess paths aggregate into a designated `_overflow` metric bucket, preventing Node.js heap leaks.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:15a8a16d2420dadb2d4c8354edba08bae350b8cf3d52d4ac98df74fa530b912e -->
+
+Each counter reserves one series for overflow. The aggregate has `normalized_route="_overflow"` and `limitforge_overflow="true"`; original route, outcome, method, store, and other labels are not retained in that series. Queries filtered by those labels will not include overflow counts. With `maxSeries: 1`, all counter increments aggregate there. Gauges and histograms continue to drop new label combinations when their series limit is reached; existing series continue updating.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 ---
 
 ## 4. OpenTelemetry Distributed Tracing

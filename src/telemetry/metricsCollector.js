@@ -13,6 +13,12 @@ function serializeLabelKey(labels = {}) {
   return entries.map(([k, v]) => `${k}="${String(v)}"`).join(',');
 }
 
+// The reserved key cannot collide with serialized user labels. The marker
+// also distinguishes the aggregate in Prometheus output.
+const OVERFLOW_COUNTER_KEY = Symbol('counter overflow');
+const OVERFLOW_COUNTER_LABELS = Object.freeze({ normalized_route: '_overflow', limitforge_overflow: 'true' });
+const OVERFLOW_COUNTER_LABEL_KEY = serializeLabelKey(OVERFLOW_COUNTER_LABELS);
+
 export class MetricsCollector {
   constructor(options = {}) {
     this.storeDurationBuckets = options.storeDurationBuckets || DEFAULT_STORE_DURATION_BUCKETS;
@@ -39,18 +45,12 @@ export class MetricsCollector {
       let targetLabels = labels;
       let labelKey = serializeLabelKey(targetLabels);
 
-      if (!metricMap.has(labelKey)) {
-        if (metricMap.size >= this.maxSeries) {
-          if (labels && labels.normalized_route) {
-            targetLabels = { ...labels, normalized_route: '_overflow' };
-            labelKey = serializeLabelKey(targetLabels);
-            if (!metricMap.has(labelKey) && metricMap.size >= this.maxSeries) {
-              return;
-            }
-          } else {
-            return;
-          }
-        }
+      // Reserve one series for overflow; existing normal series keep updating.
+      const normalSeries = metricMap.size - (metricMap.has(OVERFLOW_COUNTER_KEY) ? 1 : 0);
+      if (labelKey === OVERFLOW_COUNTER_LABEL_KEY ||
+          (!metricMap.has(labelKey) && normalSeries >= Math.ceil(this.maxSeries) - 1)) {
+        labelKey = OVERFLOW_COUNTER_KEY;
+        targetLabels = OVERFLOW_COUNTER_LABELS;
       }
 
       const current = metricMap.get(labelKey) || { value: 0, labels: { ...targetLabels } };

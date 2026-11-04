@@ -568,6 +568,62 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
       assert.equal(records.length, 2);
     });
 
+    it('retains all counter increments in a bounded overflow series', () => {
+      const collector = new MetricsCollector({ maxSeries: 3 });
+      const name = METRIC_NAMES.REQUESTS_TOTAL;
+      collector.recordRequest({ outcome: 'allowed', normalized_route: '/one', method: 'GET', store: 'memory' });
+      collector.recordRequest({ outcome: 'blocked', normalized_route: '/two', method: 'POST', store: 'redis' });
+      collector.recordRequest({ outcome: 'allowed', normalized_route: '/three', method: 'GET', store: 'redis' });
+      collector.recordRequest({ outcome: 'blocked', normalized_route: '/four', method: 'POST', store: 'memory' });
+      collector.recordRequest({ outcome: 'allowed', normalized_route: '/one', method: 'GET', store: 'memory' });
+
+      const records = collector.getSnapshot().counters[name];
+      assert.equal(records.length, 3);
+      assert.equal(records.reduce((total, record) => total + record.value, 0), 5);
+      assert.equal(records.find(record => record.labels.normalized_route === '/one').value, 2);
+      const overflow = records.find(record => record.labels.limitforge_overflow === 'true');
+      assert.deepEqual(overflow.labels, { normalized_route: '_overflow', limitforge_overflow: 'true' });
+      assert.equal(overflow.value, 2);
+    });
+
+    it('aggregates weighted and unlabelled counters when only one series is available', () => {
+      const collector = new MetricsCollector({ maxSeries: 1 });
+      collector.incrementCounter('custom_total', { status: 'ok' }, 2);
+      collector.incrementCounter('custom_total', { status: 'error' }, 3);
+      collector.incrementCounter('custom_total', {}, 4);
+      const records = collector.getSnapshot().counters.custom_total;
+      assert.equal(records.length, 1);
+      assert.equal(records[0].value, 9);
+      assert.equal(records[0].labels.limitforge_overflow, 'true');
+      collector.reset();
+      collector.incrementCounter('custom_total', { status: 'new' }, 7);
+      assert.equal(collector.getSnapshot().counters.custom_total[0].value, 7);
+    });
+
+    it('bounds and conserves counters under high label cardinality', () => {
+      for (const maxSeries of [1, 2, 3, 10]) {
+        const collector = new MetricsCollector({ maxSeries });
+        for (let i = 0; i < 1000; i++) {
+          collector.incrementCounter('traffic_total', { normalized_route: `/route-${i}`, outcome: i % 2 ? 'blocked' : 'allowed' });
+        }
+        const records = collector.getSnapshot().counters.traffic_total;
+        assert.ok(records.length <= maxSeries);
+        assert.equal(records.reduce((total, record) => total + record.value, 0), 1000);
+      }
+    });
+
+    it('does not duplicate an explicitly supplied overflow label set', () => {
+      const collector = new MetricsCollector({ maxSeries: 2 });
+      const labels = { normalized_route: '_overflow', limitforge_overflow: 'true' };
+      collector.incrementCounter('custom_total', labels, 2);
+      collector.incrementCounter('custom_total', { normalized_route: '/other' }, 3);
+      collector.incrementCounter('custom_total', { normalized_route: '/third' }, 4);
+      const records = collector.getSnapshot().counters.custom_total;
+      assert.ok(records.length <= 2);
+      assert.equal(records.reduce((total, record) => total + record.value, 0), 9);
+      assert.equal(records.filter(record => record.labels.limitforge_overflow === 'true').length, 1);
+    });
+
     it('records store error when ResilientStore primary store fails and falls back to memory', async () => {
       const collector = new MetricsCollector();
       const failingPrimary = {

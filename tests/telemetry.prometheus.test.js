@@ -185,6 +185,23 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
       app.get('/metrics', createPrometheusExporter({ collector }));
     });
 
+    it('exports overflow counter totals without exceeding the series cap', async () => {
+      const bounded = new MetricsCollector({ maxSeries: 2 });
+      const boundedApp = express();
+      boundedApp.get('/metrics', createPrometheusExporter(bounded));
+      boundedApp.use(rateLimiter({ limit: 10, windowMs: 60000, metricsCollector: bounded, routeNormalizer: req => req.path }));
+      boundedApp.use((req, res) => res.sendStatus(200));
+      for (const route of ['/one', '/two', '/three', '/four']) {
+        assert.equal((await request(boundedApp).get(route)).status, 200);
+      }
+      const res = await request(boundedApp).get('/metrics');
+      const lines = res.text.split('\n').filter(line => line.startsWith('smartrate_requests_total{'));
+      assert.equal(res.status, 200);
+      assert.equal(lines.length, 2);
+      assert.equal(lines.reduce((total, line) => total + Number(line.slice(line.lastIndexOf(' ') + 1)), 0), 4);
+      assert.match(lines.find(line => line.includes('limitforge_overflow="true"')), /normalized_route="_overflow"/);
+    });
+
     it('exports the supplied collector directly and preserves both options forms', async () => {
       defaultMetricsCollector.reset();
       defaultMetricsCollector.recordRequest({ outcome: 'allowed', normalized_route: '/default' });
