@@ -224,6 +224,14 @@ The TypeScript signature of `MetricsCollector.recordStoreDuration` now matches t
 
 <!-- /coderabbit-ai-generated:v1 -->
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:237385d5d3576d779d4b29760da667bfe6d05ecd3775954916e2f4dd3bd98451 -->
+
+`MetricsCollector.recordCircuitBreakerState` accepts a state string such as `"OPEN"` and optional labels, for example `recordCircuitBreakerState("OPEN", { breaker: "main" })`. The previous TypeScript object-form declaration did not match the runtime; callers using that form must update their code.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 ---
 
 ## Examples & Demos

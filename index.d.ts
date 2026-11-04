@@ -89,8 +89,8 @@ export interface RateLimiterOptions {
   breakerId?: string;
   failStrategy?: FailStrategy;
   onStoreError?: StoreErrorMode | ((err: Error, req: Request, res: Response, next: NextFunction) => void);
-  metrics?: boolean | MetricsCollector;
-  metricsCollector?: MetricsCollector;
+  metrics?: boolean | MetricsCollectorInput;
+  metricsCollector?: MetricsCollectorInput;
   routeNormalizer?: (req: Request) => string;
   includeRoute?: boolean;
   openTelemetry?: boolean | OpenTelemetryBridge | { tracer?: any; getSpan?: (req: Request) => any; recordEvaluation?: Function; recordStoreError?: Function };
@@ -151,23 +151,38 @@ export declare class ResilientStore implements IRateLimitStore {
 }
 
 export declare class MetricsCollector {
-  constructor(options?: { maxSeries?: number; metricMap?: Map<string, any> });
+  constructor(options?: {
+    maxSeries?: number;
+    storeDurationBuckets?: readonly number[];
+    /** @deprecated This option is ignored by the runtime. */
+    metricMap?: Map<string, any>;
+  });
+  incrementCounter(name: string, labels?: Record<string, unknown>, value?: number): void;
+  setGauge(name: string, value: number, labels?: Record<string, unknown>): void;
+  observeHistogram(name: string, durationSeconds: number, labels?: Record<string, unknown>, customBuckets?: readonly number[]): void;
   recordRequest(params: {
-    outcome: 'allowed' | 'blocked';
+    outcome?: string;
+    algorithm?: string;
     normalized_route?: string;
     method?: string;
+    /** @deprecated This field is ignored by the runtime. */
     status_code?: number;
     store?: string;
+    /** @deprecated This field is ignored by the runtime. */
     degraded?: boolean;
   }): void;
+  recordStoreError(params: { store?: string; error_type?: string }): void;
+  recordDegradedRequest(params: { reason?: string }): void;
   recordStoreDuration(durationSeconds: number, labels?: Record<string, unknown>): void;
-  recordCircuitBreakerState(params: {
-    state: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
-    breaker?: string;
-  }): void;
+  /** Unknown state strings are recorded as CLOSED. */
+  recordCircuitBreakerState(state: string, labels?: Record<string, unknown>): void;
   getSnapshot(): any;
   reset(): void;
 }
+
+/** Collector shape accepted by limiter options before additional methods were declared. */
+export type MetricsCollectorInput = Pick<MetricsCollector,
+  'recordRequest' | 'recordStoreDuration' | 'recordCircuitBreakerState' | 'getSnapshot' | 'reset'>;
 
 export declare const defaultMetricsCollector: MetricsCollector;
 

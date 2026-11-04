@@ -177,6 +177,29 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
       assert.equal(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].labels.store, 'redis');
     });
 
+    it('records declared collector calls with the expected labels and values', () => {
+      const custom = new MetricsCollector({ maxSeries: 20, storeDurationBuckets: [0.1, 1] });
+      custom.recordRequest({ outcome: 'allowed', algorithm: 'sliding-window', method: 'GET', normalized_route: '/api', store: 'redis' });
+      custom.recordStoreError({ store: 'redis', error_type: 'timeout' });
+      custom.recordDegradedRequest({ reason: 'fallback' });
+      custom.recordCircuitBreakerState('OPEN', { breaker: 'main' });
+      custom.recordStoreDuration(0.2, { store: 'redis' });
+      custom.incrementCounter('custom_total', { route: '/api' }, 2);
+      custom.setGauge('custom_gauge', 3, { node: 'a' });
+      custom.observeHistogram('custom_duration', 0.2, { operation: 'get' }, [0.1, 1]);
+      const snapshot = custom.getSnapshot();
+      assert.equal(snapshot.counters[METRIC_NAMES.REQUESTS_TOTAL][0].labels.algorithm, 'sliding-window');
+      assert.equal(snapshot.counters[METRIC_NAMES.STORE_ERRORS_TOTAL][0].labels.error_type, 'timeout');
+      assert.equal(snapshot.counters[METRIC_NAMES.DEGRADED_REQUESTS_TOTAL][0].labels.reason, 'fallback');
+      const breaker = snapshot.gauges[METRIC_NAMES.CIRCUIT_BREAKER_STATE].find(record => record.labels.breaker === 'main');
+      assert.equal(breaker.value, CIRCUIT_STATE_GAUGE_VALUES.OPEN);
+      assert.equal(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].sum, 0.2);
+      assert.deepEqual(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].buckets.map(bucket => bucket.le), [0.1, 1]);
+      assert.equal(snapshot.counters.custom_total[0].value, 2);
+      assert.equal(snapshot.gauges.custom_gauge[0].value, 3);
+      assert.equal(snapshot.histograms.custom_duration[0].sum, 0.2);
+    });
+
     it('resets all metric state and restores default circuit breaker gauge', () => {
       collector.incrementCounter('reqs', {}, 10);
       collector.recordCircuitBreakerState('OPEN');
