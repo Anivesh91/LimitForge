@@ -77,7 +77,8 @@ app.use(
   rateLimiter({
     store,
     limit: 100,             // 100 requests
-    windowMs: 60 * 1000     // per 1 minute
+    windowMs: 60 * 1000,    // per 1 minute
+    metrics: true
   })
 );
 
@@ -88,7 +89,8 @@ app.post(
     algorithm: 'token-bucket',
     capacity: 10,
     refillRate: 1,
-    refillIntervalMs: 1000
+    refillIntervalMs: 1000,
+    metrics: true
   }),
   (req, res) => res.json({ success: true })
 );

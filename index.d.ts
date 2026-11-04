@@ -216,7 +216,14 @@ export declare function buildRateLimitKey(params?: {
 
 export declare function normalizeRoute(req: Request, customNormalizer?: (req: Request) => string): string;
 export declare function sanitizePath(rawPath: string): string;
-export declare function createPrometheusExporter(collector?: MetricsCollector): RequestHandler;
+export interface PrometheusCollector {
+  getSnapshot(): any;
+}
+export interface PrometheusExporterOptions {
+  collector?: PrometheusCollector;
+  metricsCollector?: PrometheusCollector;
+}
+export declare function createPrometheusExporter(options?: PrometheusCollector | PrometheusExporterOptions): RequestHandler;
 export declare function formatPrometheusMetrics(snapshot?: any): string;
 export declare function withTimeout<T>(operation: Promise<T> | T, timeoutMs: number): Promise<T>;
 export declare function runBenchmark(options?: any): Promise<any>;

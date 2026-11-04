@@ -1,10 +1,14 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import request from 'supertest';
 import express from 'express';
 import {
   rateLimiter,
   MetricsCollector,
+  MemoryStore,
+  RedisStore,
+  ResilientStore,
   defaultMetricsCollector,
   createPrometheusExporter,
   formatPrometheusMetrics,
@@ -179,6 +183,70 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
       app.post('/api/checkout', limiter, (req, res) => res.json({ ok: true }));
 
       app.get('/metrics', createPrometheusExporter({ collector }));
+    });
+
+    it('exports the supplied collector directly and preserves both options forms', async () => {
+      defaultMetricsCollector.reset();
+      defaultMetricsCollector.recordRequest({ outcome: 'allowed', normalized_route: '/default' });
+      const other = new MetricsCollector();
+      collector.recordRequest({ outcome: 'allowed', normalized_route: '/custom' });
+      other.recordRequest({ outcome: 'allowed', normalized_route: '/other' });
+      assert.equal((await request(app).get('/api/users/100')).status, 200);
+      app.get('/direct', createPrometheusExporter(collector));
+      app.get('/collector', createPrometheusExporter({ collector }));
+      app.get('/alias', createPrometheusExporter({ metricsCollector: other }));
+      app.get('/precedence', createPrometheusExporter({ collector, metricsCollector: other }));
+      for (const route of ['/direct', '/collector', '/precedence']) {
+        const res = await request(app).get(route);
+        assert.equal(res.status, 200);
+        assert.match(res.text, /normalized_route="\/custom"/);
+        assert.match(res.text, /normalized_route="\/api\/users\/:id"[^\n]* 1/);
+        assert.doesNotMatch(res.text, /normalized_route="\/(?:default|other)"/);
+      }
+      const alias = await request(app).get('/alias');
+      assert.match(alias.text, /normalized_route="\/other"/);
+      assert.doesNotMatch(alias.text, /normalized_route="\/(?:default|custom)"/);
+    });
+
+    it('forwards direct collector errors through the Express error handler', async () => {
+      app.get('/broken-direct', createPrometheusExporter({ getSnapshot() { throw new Error('snapshot failed'); } }));
+      app.use((err, req, res, next) => res.status(500).send(err.message));
+      const res = await request(app).get('/broken-direct');
+      assert.equal(res.status, 500);
+      assert.equal(res.text, 'snapshot failed');
+    });
+
+    it('documented observability setup records request metrics', async () => {
+      defaultMetricsCollector.reset();
+      const doc = await readFile(new URL('../docs/observability.md', import.meta.url), 'utf8');
+      const code = doc.match(/```javascript\n([\s\S]*?)\n```/)?.[1];
+      assert.ok(code);
+      assert.ok(code.includes('app.listen(3000);'));
+      const runnable = code.replace(/^import[\s\S]*?from '[^']+';\n/gm, '').replace('app.listen(3000);', 'return app;');
+      const example = new Function('express', 'rateLimiter', 'createPrometheusExporter', runnable)(express, rateLimiter, createPrometheusExporter);
+      const scrape = await request(example).get('/metrics');
+      assert.equal(scrape.status, 200);
+      assert.match(scrape.text, /smartrate_requests_total\{[^\n]*outcome="allowed"/);
+    });
+
+    it('README quick start records both global and checkout metrics', async () => {
+      defaultMetricsCollector.reset();
+      const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+      const quickStart = readme.split('## Quick Start\n')[1];
+      const code = quickStart?.match(/```javascript\n([\s\S]*?)\n```/)?.[1];
+      const listen = "app.listen(3000, () => console.log('Server running on http://localhost:3000'));";
+      assert.ok(code?.includes(listen));
+      const runnable = code.replace(/^import[\s\S]*?from '[^']+';\n/gm, '').replace(listen, 'return app;');
+      const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+      const createClient = () => ({ isOpen: false, on() {}, connect: async () => { throw new Error('offline'); } });
+      const example = await new AsyncFunction('express', 'createClient', 'rateLimiter', 'RedisStore', 'MemoryStore', 'ResilientStore', 'createPrometheusExporter', runnable)(
+        express, createClient, rateLimiter, RedisStore, MemoryStore, ResilientStore, createPrometheusExporter
+      );
+      assert.equal((await request(example).post('/api/checkout')).status, 200);
+      const scrape = await request(example).get('/metrics');
+      assert.equal(scrape.status, 200);
+      assert.match(scrape.text, /smartrate_requests_total\{algorithm="fixed-window"[^\n]*outcome="allowed"/);
+      assert.match(scrape.text, /smartrate_requests_total\{algorithm="token-bucket"[^\n]*outcome="allowed"/);
     });
 
     it('serves Prometheus metrics with the correct HTTP 200 and Content-Type header', async () => {

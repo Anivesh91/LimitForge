@@ -103,5 +103,11 @@ const cbErr = new CircuitBreakerOpenError('open', 5000);
 
 // 6. Prometheus exporter
 app.get('/metrics', createPrometheusExporter(collector));
+app.get('/metrics-options', createPrometheusExporter({ collector }));
+app.get('/metrics-alias', createPrometheusExporter({ metricsCollector: collector }));
+app.get('/metrics-custom', createPrometheusExporter({ getSnapshot: () => ({}) }));
+app.get('/metrics-default', createPrometheusExporter());
+// @ts-expect-error collector must implement getSnapshot
+createPrometheusExporter({ collector: {} });
 
 console.log('TypeScript definitions test passed compilation!');

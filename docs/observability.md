@@ -19,13 +19,21 @@ import { rateLimiter, createPrometheusExporter } from 'limitforge';
 const app = express();
 
 // Apply rate limiting middleware
-app.use(rateLimiter({ limit: 100, windowMs: 60000 }));
+app.use(rateLimiter({ limit: 100, windowMs: 60000, metrics: true }));
 
 // Expose standard Prometheus scrape endpoint
 app.get('/metrics', createPrometheusExporter());
 
 app.listen(3000);
 ```
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:c64de25533acf908a37a7a1a7e5a5cf9ba6147b69fe88b3411b2a046cfabb81e -->
+
+`metrics: true` records to the shared default collector used by `createPrometheusExporter()`. For an independent collector, pass the same instance as `metricsCollector` to the limiter and to `createPrometheusExporter(collector)`. The exporter also accepts `{ collector }` or `{ metricsCollector: collector }`; if both options are provided, `collector` takes precedence.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 When scraped by Prometheus (`GET /metrics`), LimitForge returns `Content-Type: text/plain; version=0.0.4; charset=utf-8`:
 
