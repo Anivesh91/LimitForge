@@ -16,6 +16,7 @@ function serializeLabelKey(labels = {}) {
 // The reserved key cannot collide with serialized user labels. The marker
 // also distinguishes the aggregate in Prometheus output.
 const OVERFLOW_COUNTER_KEY = Symbol('counter overflow');
+const OVERFLOW_HISTOGRAM_KEY = Symbol('histogram overflow');
 const OVERFLOW_COUNTER_LABELS = Object.freeze({ normalized_route: '_overflow', limitforge_overflow: 'true' });
 const OVERFLOW_COUNTER_LABEL_KEY = serializeLabelKey(OVERFLOW_COUNTER_LABELS);
 
@@ -56,6 +57,15 @@ export class MetricsCollector {
       const current = metricMap.get(labelKey) || { value: 0, labels: { ...targetLabels } };
       current.value += value;
       metricMap.set(labelKey, current);
+
+      if (name === METRIC_NAMES.REQUESTS_TOTAL && labelKey === OVERFLOW_COUNTER_KEY) {
+        const outcomeMetric = labels?.outcome === 'allowed'
+          ? METRIC_NAMES.OVERFLOW_REQUESTS_ALLOWED_TOTAL
+          : labels?.outcome === 'blocked'
+            ? METRIC_NAMES.OVERFLOW_REQUESTS_BLOCKED_TOTAL
+            : METRIC_NAMES.OVERFLOW_REQUESTS_OTHER_TOTAL;
+        this.incrementCounter(outcomeMetric, {}, value);
+      }
     } catch {
       // safe telemetry boundary
     }
@@ -75,6 +85,7 @@ export class MetricsCollector {
       let labelKey = serializeLabelKey(targetLabels);
 
       if (!metricMap.has(labelKey) && metricMap.size >= this.maxSeries) {
+        this.incrementCounter(METRIC_NAMES.METRIC_UPDATES_DROPPED_TOTAL, { metric_type: 'gauge', metric_name: name });
         return;
       }
 
@@ -100,8 +111,11 @@ export class MetricsCollector {
       let targetLabels = labels;
       let labelKey = serializeLabelKey(targetLabels);
 
-      if (!metricMap.has(labelKey) && metricMap.size >= this.maxSeries) {
-        return;
+      const normalSeries = metricMap.size - (metricMap.has(OVERFLOW_HISTOGRAM_KEY) ? 1 : 0);
+      if (labelKey === OVERFLOW_COUNTER_LABEL_KEY ||
+          (!metricMap.has(labelKey) && normalSeries >= Math.ceil(this.maxSeries) - 1)) {
+        labelKey = OVERFLOW_HISTOGRAM_KEY;
+        targetLabels = OVERFLOW_COUNTER_LABELS;
       }
 
       let record = metricMap.get(labelKey);

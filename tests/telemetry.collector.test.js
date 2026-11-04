@@ -635,6 +635,59 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
       }
     });
 
+    it('conserves histogram observations and sums at the series cap', () => {
+      const collector = new MetricsCollector({ maxSeries: 2 });
+      collector.observeHistogram('latency', 0.05, { route: '/one' }, [0.1, 1]);
+      collector.observeHistogram('latency', 0.2, { route: '/two' }, [0.1, 1]);
+      collector.observeHistogram('latency', 1, { route: '/three' }, [0.05, 10]);
+      collector.observeHistogram('latency', 0.4, { route: '/one' }, [0.1, 1]);
+      const records = collector.getSnapshot().histograms.latency;
+      assert.equal(records.length, 2);
+      assert.equal(records.reduce((total, record) => total + record.count, 0), 4);
+      assert.ok(Math.abs(records.reduce((total, record) => total + record.sum, 0) - 1.65) < 1e-9);
+      const overflow = records.find(record => record.labels.limitforge_overflow === 'true');
+      assert.equal(overflow.count, 2);
+      assert.deepEqual(overflow.buckets, [{ le: 0.1, count: 0 }, { le: 1, count: 2 }]);
+    });
+
+    it('aggregates every histogram observation with maxSeries of one', () => {
+      const collector = new MetricsCollector({ maxSeries: 1 });
+      for (let i = 0; i < 100; i++) collector.observeHistogram('latency', i / 100, { route: `/r${i}` }, [0.5, 1]);
+      const records = collector.getSnapshot().histograms.latency;
+      assert.equal(records.length, 1);
+      assert.equal(records[0].count, 100);
+      assert.equal(records[0].buckets[1].count, 100);
+      assert.equal(records[0].labels.limitforge_overflow, 'true');
+    });
+
+    it('keeps exact global request outcomes for overflow even with a single series', () => {
+      const collector = new MetricsCollector({ maxSeries: 1 });
+      collector.recordRequest({ outcome: 'allowed', normalized_route: '/one' });
+      collector.recordRequest({ outcome: 'blocked', normalized_route: '/two' });
+      collector.recordRequest({ outcome: 'blocked', normalized_route: '/three' });
+      collector.recordRequest({ outcome: 'unknown', normalized_route: '/four' });
+      const counters = collector.getSnapshot().counters;
+      assert.equal(counters[METRIC_NAMES.REQUESTS_TOTAL][0].value, 4);
+      assert.equal(counters[METRIC_NAMES.OVERFLOW_REQUESTS_ALLOWED_TOTAL][0].value, 1);
+      assert.equal(counters[METRIC_NAMES.OVERFLOW_REQUESTS_BLOCKED_TOTAL][0].value, 2);
+      assert.equal(counters[METRIC_NAMES.OVERFLOW_REQUESTS_OTHER_TOTAL][0].value, 1);
+      for (const records of Object.values(counters)) assert.ok(records.length <= 1);
+    });
+
+    it('reports gauge updates that cannot fit without changing existing gauges', () => {
+      const collector = new MetricsCollector({ maxSeries: 2 });
+      collector.setGauge('temperature', 10, { sensor: 'one' });
+      collector.setGauge('temperature', 20, { sensor: 'two' });
+      collector.setGauge('temperature', 30, { sensor: 'three' });
+      collector.setGauge('temperature', 40, { sensor: 'three' });
+      collector.setGauge('temperature', 11, { sensor: 'one' });
+      const snapshot = collector.getSnapshot();
+      assert.deepEqual(snapshot.gauges.temperature.map(record => record.value), [11, 20]);
+      const dropped = snapshot.counters[METRIC_NAMES.METRIC_UPDATES_DROPPED_TOTAL];
+      assert.equal(dropped[0].value, 2);
+      assert.deepEqual(dropped[0].labels, { metric_type: 'gauge', metric_name: 'temperature' });
+    });
+
     it('does not duplicate an explicitly supplied overflow label set', () => {
       const collector = new MetricsCollector({ maxSeries: 2 });
       const labels = { normalized_route: '_overflow', limitforge_overflow: 'true' };

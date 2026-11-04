@@ -59,18 +59,20 @@ import {
 const app = express();
 
 // 1. Connect Redis Client (Optional for distributed setups)
-const redisClient = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
+const redisClient = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379',
+  disableOfflineQueue: true,
+  socket: { connectTimeout: 1000 }
+});
 redisClient.on('error', (err) => console.warn('Redis error:', err.message));
-await redisClient.connect().catch(() => {});
+redisClient.connect().catch((err) => console.warn('Redis connection stopped:', err.message));
 
 // 2. Configure Store (ResilientStore falls back to MemoryStore if Redis fails)
-const store = redisClient.isOpen
-  ? new ResilientStore({
-      primaryStore: new RedisStore({ client: redisClient }),
-      fallbackStore: new MemoryStore(),
-      timeoutMs: 150
-    })
-  : new MemoryStore();
+const store = new ResilientStore({
+  primaryStore: new RedisStore({ client: redisClient }),
+  fallbackStore: new MemoryStore(),
+  timeoutMs: 150
+});
 
 // 3. Apply Rate Limiting Middleware
 app.use(
@@ -100,6 +102,20 @@ app.get('/metrics', createPrometheusExporter());
 
 app.listen(3000, () => console.log('Server running on http://localhost:3000'));
 ```
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:ce97d92b5e51df51ac3e07d9ff5bdbff1c738f11700d8fc0e8a9d2331845dc4e -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:9ac510888b221f5073490bb730525f55e769a04ae9d2ff6f389485da1b3a31b5 -->
+
+The application starts while Redis connects or reconnects. Requests use the memory fallback while Redis is unavailable and return to Redis after it recovers and the circuit breaker permits a successful probe. Memory quotas are local to each application instance and do not migrate to Redis. For strict global enforcement, configure `onStoreError: "fail-closed"`. The client disables offline command queueing so commands are not replayed after reconnect; commands already sent can still finish after a timeout.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ---
 

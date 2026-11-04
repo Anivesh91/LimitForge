@@ -200,6 +200,39 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
       assert.equal(lines.length, 2);
       assert.equal(lines.reduce((total, line) => total + Number(line.slice(line.lastIndexOf(' ') + 1)), 0), 4);
       assert.match(lines.find(line => line.includes('limitforge_overflow="true"')), /normalized_route="_overflow"/);
+      assert.match(res.text, /limitforge_overflow_requests_allowed_total 3/);
+    });
+
+    it('exposes global allowed and blocked overflow outcomes independently', async () => {
+      const bounded = new MetricsCollector({ maxSeries: 2 });
+      const boundedApp = express();
+      boundedApp.get('/metrics', createPrometheusExporter(bounded));
+      boundedApp.use(rateLimiter({ limit: 1, windowMs: 60000, metricsCollector: bounded, routeNormalizer: req => req.path }));
+      boundedApp.use((req, res) => res.sendStatus(200));
+      for (const [route, status] of [['/one', 200], ['/one', 429], ['/two', 200], ['/two', 429]]) {
+        assert.equal((await request(boundedApp).get(route)).status, status);
+      }
+      const scrape = await request(boundedApp).get('/metrics');
+      assert.match(scrape.text, /limitforge_overflow_requests_allowed_total 1/);
+      assert.match(scrape.text, /limitforge_overflow_requests_blocked_total 2/);
+    });
+
+    it('exports histogram overflow and reports dropped gauge updates', async () => {
+      const bounded = new MetricsCollector({ maxSeries: 2 });
+      for (const route of ['/one', '/two', '/three', '/four']) {
+        bounded.observeHistogram('latency_seconds', 0.25, { route }, [0.1, 1]);
+      }
+      for (const sensor of ['one', 'two', 'three']) {
+        bounded.setGauge('temperature', 20, { sensor });
+      }
+      app.get('/bounded-metrics', createPrometheusExporter(bounded));
+      const res = await request(app).get('/bounded-metrics');
+      const counts = res.text.split('\n').filter(line => line.startsWith('latency_seconds_count{'));
+      assert.equal(res.status, 200);
+      assert.equal(counts.length, 2);
+      assert.equal(counts.reduce((total, line) => total + Number(line.slice(line.lastIndexOf(' ') + 1)), 0), 4);
+      assert.match(counts.find(line => line.includes('limitforge_overflow="true"')), / 3$/);
+      assert.match(res.text, /limitforge_metric_updates_dropped_total\{metric_name="temperature",metric_type="gauge"\} 1/);
     });
 
     it('exports the supplied collector directly and preserves both options forms', async () => {
@@ -260,11 +293,21 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         assert.ok(code?.includes(listen));
         const runnable = code.replace(/^import[\s\S]*?from '[^']+';\r?\n/gm, '').replace(listen, 'return app;');
         const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-        const createClient = () => ({ isOpen: false, on() {}, connect: async () => { throw new Error('offline'); } });
-        const example = await new AsyncFunction('express', 'createClient', 'rateLimiter', 'RedisStore', 'MemoryStore', 'ResilientStore', 'createPrometheusExporter', runnable)(
+        const createClient = () => ({
+          on() {}, connect: () => new Promise(() => {}),
+          eval: async () => { throw new Error('offline'); }
+        });
+        const startup = new AsyncFunction('express', 'createClient', 'rateLimiter', 'RedisStore', 'MemoryStore', 'ResilientStore', 'createPrometheusExporter', runnable)(
           express, createClient, rateLimiter, RedisStore, MemoryStore, ResilientStore, createPrometheusExporter
         );
-        assert.equal((await request(example).post('/api/checkout')).status, 200);
+        let timer;
+        const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('quick start stalled')), 1000); });
+        let example;
+        try { example = await Promise.race([startup, deadline]); }
+        finally { clearTimeout(timer); }
+        const checkout = await request(example).post('/api/checkout');
+        assert.equal(checkout.status, 200);
+        assert.equal(checkout.headers['ratelimit-degraded'], 'true');
         const scrape = await request(example).get('/metrics');
         assert.equal(scrape.status, 200);
         assert.match(scrape.text, /smartrate_requests_total\{algorithm="fixed-window"[^\n]*outcome="allowed"/);

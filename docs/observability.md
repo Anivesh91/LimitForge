@@ -91,7 +91,23 @@ Uncontrolled label cardinality is the leading cause of memory exhaustion in Prom
 
 <!-- coderabbit-ai-generated-section:v1:15a8a16d2420dadb2d4c8354edba08bae350b8cf3d52d4ac98df74fa530b912e -->
 
-Each counter reserves one series for overflow. The aggregate has `normalized_route="_overflow"` and `limitforge_overflow="true"`; original route, outcome, method, store, and other labels are not retained in that series. Queries filtered by those labels will not include overflow counts. With `maxSeries: 1`, all counter increments aggregate there. Gauges and histograms continue to drop new label combinations when their series limit is reached; existing series continue updating.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:26fc180950687a73cc631b93e0f9a75cd5efd6bcb15de6adb39758a6db53aedf -->
+
+Each counter and histogram reserves one series for overflow. The aggregate has `normalized_route="_overflow"` and `limitforge_overflow="true"`; original route, outcome, method, store, and other labels are not retained in that series. Queries filtered by those labels do not include overflow counts. With `maxSeries: 1`, all counter increments and histogram observations aggregate there. An overflow histogram uses the bucket boundaries of its first observation; count and sum include all overflow observations.
+
+Gauge values are not generally additive. When the gauge series limit is reached, updates for new label combinations are dropped and counted in `limitforge_metric_updates_dropped_total` with `metric_type="gauge"` and `metric_name` labels; existing series continue updating. This diagnostic counter is also subject to the counter overflow rule.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:6e1fd6630dc00b7cd69bc329102d5f65f4e80bdeb7e842f2f3556a3d2cae0d60 -->
+
+For request counter overflow, `limitforge_overflow_requests_allowed_total`, `limitforge_overflow_requests_blocked_total`, and `limitforge_overflow_requests_other_total` preserve global outcome totals even when `maxSeries` is 1. Add an overflow outcome counter to the corresponding filtered `smartrate_requests_total` query for a global total. These counters are already included in the unfiltered `smartrate_requests_total` total, so adding them to that total would double-count. Per-route overflow outcomes cannot be recovered.
 
 <!-- /coderabbit-ai-generated:v1 -->
 

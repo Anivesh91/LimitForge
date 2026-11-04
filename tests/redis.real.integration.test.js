@@ -1,10 +1,12 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import net from 'node:net';
 import { createClient } from 'redis';
 import express from 'express';
 import request from 'supertest';
-import { MemoryStore, RedisStore, ResilientStore, rateLimiter, buildRateLimitKey } from '../src/index.js';
+import { MemoryStore, RedisStore, ResilientStore, rateLimiter, buildRateLimitKey, createPrometheusExporter } from '../src/index.js';
 
 const redisUrl = process.env.REDIS_URL;
 
@@ -15,6 +17,121 @@ describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run re
     await client.connect();
     return client;
   }
+
+  it('runs the quick start during Redis outages and reconnects when Redis returns', async (t) => {
+    const upstream = new URL(redisUrl);
+    if (upstream.protocol !== 'redis:') return t.skip('TCP proxy test requires redis://');
+    const upstreamHost = upstream.hostname;
+    const upstreamPort = Number(upstream.port || 6379);
+    const admin = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    let down = true;
+    const sockets = new Set();
+    const proxy = net.createServer(incoming => {
+      incoming.on('error', () => {});
+      if (down) return incoming.destroy();
+      const outgoing = net.connect({ host: upstreamHost, port: upstreamPort });
+      outgoing.on('error', () => incoming.destroy());
+      sockets.add(incoming);
+      sockets.add(outgoing);
+      incoming.on('close', () => { sockets.delete(incoming); outgoing.destroy(); });
+      outgoing.on('close', () => { sockets.delete(outgoing); incoming.destroy(); });
+      incoming.pipe(outgoing).pipe(incoming);
+    });
+    await new Promise((resolve, reject) => {
+      proxy.once('error', reject);
+      proxy.listen(0, '127.0.0.1', resolve);
+    });
+    let example;
+    t.after(async () => {
+      if (example?.redisClient.isOpen) await example.redisClient.disconnect();
+      example?.store.fallbackStore.destroy();
+      for (const socket of sockets) socket.destroy();
+      await new Promise(resolve => proxy.close(resolve));
+      const keys = await admin.keys(`${prefix}:*`);
+      if (keys.length) await admin.del(keys);
+      admin.destroy();
+    });
+
+    const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+    const code = readme.split(/## Quick Start\r?\n/)[1]?.match(/```javascript\r?\n([\s\S]*?)\r?\n```/)?.[1];
+    const redisSetting = "process.env.REDIS_URL || 'redis://localhost:6379'";
+    const listener = "app.listen(3000, () => console.log('Server running on http://localhost:3000'));";
+    assert.ok(code?.includes(redisSetting) && code.includes(listener));
+    assert.match(code, /    store,\r?\n    limit: 100,/);
+    upstream.hostname = '127.0.0.1';
+    upstream.port = String(proxy.address().port);
+    const runnable = code.replace(/^import[\s\S]*?from '[^']+';\r?\n/gm, '')
+      .replace(redisSetting, JSON.stringify(upstream.toString()))
+      .replace(/    store,\r?\n    limit: 100,/, `    store,\n    prefix: '${prefix}',\n    limit: 100,`)
+      .replace(listener, 'return { app, redisClient, store };');
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    example = await new AsyncFunction('express', 'createClient', 'rateLimiter', 'RedisStore', 'MemoryStore', 'ResilientStore', 'createPrometheusExporter', runnable)(
+      express, createClient, rateLimiter, RedisStore, MemoryStore, ResilientStore, createPrometheusExporter
+    );
+
+    const first = await request(example.app).get('/metrics');
+    assert.equal(first.status, 200);
+    assert.equal(first.headers['ratelimit-degraded'], 'true');
+    down = false;
+    const waitUntil = async predicate => {
+      const deadline = Date.now() + 10000;
+      while (!predicate()) {
+        if (Date.now() > deadline) throw new Error('Redis reconnect did not complete');
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+    };
+    await waitUntil(() => example.redisClient.isReady);
+    const recovered = await request(example.app).get('/metrics');
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.headers['ratelimit-degraded'], undefined);
+    assert.equal(recovered.headers['ratelimit-remaining'], '99');
+
+    down = true;
+    for (const socket of sockets) socket.destroy();
+    await waitUntil(() => !example.redisClient.isReady);
+    const degraded = await request(example.app).get('/metrics');
+    assert.equal(degraded.status, 200);
+    assert.equal(degraded.headers['ratelimit-degraded'], 'true');
+    down = false;
+    await waitUntil(() => example.redisClient.isReady);
+    const resumed = await request(example.app).get('/metrics');
+    assert.equal(resumed.headers['ratelimit-degraded'], undefined);
+    assert.equal(resumed.headers['ratelimit-remaining'], '98');
+  });
+
+  it('reports the actual fallback store when the demo breaker is open', async (t) => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousRedisUrl = process.env.REDIS_URL;
+    let demo;
+    try {
+      process.env.NODE_ENV = 'development';
+      process.env.REDIS_URL = redisUrl;
+      const moduleUrl = new URL('../examples/express-demo/routes.js', import.meta.url);
+      moduleUrl.searchParams.set('instance', randomUUID());
+      demo = await import(moduleUrl.href);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousRedisUrl === undefined) delete process.env.REDIS_URL;
+      else process.env.REDIS_URL = previousRedisUrl;
+    }
+    t.after(() => demo.closeRedisClient());
+    const app = express();
+    app.use('/api', demo.default);
+    const deadline = Date.now() + 5000;
+    while (!(await request(app).get('/api/status')).body.redisConnected) {
+      if (Date.now() > deadline) throw new Error('Demo Redis connection did not become ready');
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    const route = demo.default.stack.find(layer => layer.route?.path === '/distributed').route;
+    const limiter = route.stack.find(layer => layer.handle.circuitBreaker).handle;
+    limiter.circuitBreaker.trip(new Error('synthetic outage'));
+    const response = await request(app).get('/api/distributed');
+    assert.equal(response.status, 200);
+    assert.equal(response.headers['ratelimit-degraded'], 'true');
+    assert.equal(response.body.store, 'memory');
+  });
 
   it('enforces each algorithm atomically across independent clients', async (t) => {
     const clientA = await connect();

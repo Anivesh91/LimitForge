@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { createClient } from 'redis';
-import { rateLimiter, RedisStore } from '../../src/index.js';
+import { rateLimiter, RedisStore, ResilientStore } from '../../src/index.js';
 import {
   testController,
   loginController,
@@ -15,19 +15,14 @@ let redisClient = null;
 
 if (REDIS_URL) {
   try {
-    redisClient = createClient({ url: REDIS_URL });
+    redisClient = createClient({ url: REDIS_URL, disableOfflineQueue: true, socket: { connectTimeout: 1000 } });
     redisClient.on('error', (err) => {
       console.warn('[LimitForge Demo] Redis connection warning:', err.message);
     });
-    await redisClient.connect().catch((err) => {
-      console.warn('[LimitForge Demo] Redis unreachable, falling back to MemoryStore:', err.message);
-      redisClient = null;
+    redisClient.connect().catch((err) => {
+      console.warn('[LimitForge Demo] Redis connection stopped:', err.message);
     });
-
-    if (redisClient && redisClient.isOpen) {
-      sharedStore = new RedisStore({ client: redisClient });
-      console.log(`[LimitForge Demo] Connected to Redis at ${REDIS_URL} (Distributed Rate Limiting Active)`);
-    }
+    sharedStore = new ResilientStore({ primaryStore: new RedisStore({ client: redisClient }) });
   } catch (err) {
     console.warn('[LimitForge Demo] Redis initialization failed, using MemoryStore fallback:', err.message);
   }
@@ -74,7 +69,7 @@ router.get(
     res.json({
       success: true,
       message: 'Distributed rate-limited endpoint reached',
-      store: redisClient && redisClient.isOpen ? 'redis' : 'memory',
+      store: req.rateLimit?.fallbackUsed ? 'memory' : (redisClient && redisClient.isReady ? 'redis' : 'memory'),
       clientIp: req.ip
     });
   }
@@ -84,17 +79,19 @@ router.get('/status', (req, res) => {
   res.json({
     status: 'online',
     package: 'limitforge',
-    store: redisClient && redisClient.isOpen ? 'redis' : 'memory',
-    redisConnected: Boolean(redisClient && redisClient.isOpen),
+    store: redisClient && redisClient.isReady ? 'redis' : 'memory',
+    redisConnected: Boolean(redisClient && redisClient.isReady),
     clientIp: req.ip
   });
 });
 
 export async function closeRedisClient() {
   if (redisClient && redisClient.isOpen) {
-    await redisClient.quit().catch(() => {});
-    redisClient = null;
+    if (redisClient.isReady) await redisClient.quit().catch(() => {});
+    else await redisClient.disconnect().catch(() => {});
   }
+  redisClient = null;
+  if (sharedStore instanceof ResilientStore) sharedStore.fallbackStore.destroy();
 }
 
 export default router;

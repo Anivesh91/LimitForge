@@ -1,5 +1,8 @@
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'node:net';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import request from 'supertest';
 import express from 'express';
 import { rateLimiter } from '../src/index.js';
@@ -14,6 +17,42 @@ function createTestApp() {
 }
 
 describe('SmartRate v1 — Test Suite', () => {
+
+  it('starts both Redis-backed examples when Redis is unavailable', async () => {
+    const reservation = net.createServer();
+    await new Promise(resolve => reservation.listen(0, '127.0.0.1', resolve));
+    const port = reservation.address().port;
+    await new Promise(resolve => reservation.close(resolve));
+    const run = promisify(execFile);
+    const redisUrl = `redis://127.0.0.1:${port}`;
+    const demo = `
+      import assert from 'node:assert/strict';
+      const { default: server } = await import('./examples/express-demo/server.js');
+      const { closeRedisClient } = await import('./examples/express-demo/routes.js');
+      if (!server.listening) await new Promise(resolve => server.once('listening', resolve));
+      const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/status');
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).store, 'memory');
+      await new Promise(resolve => { server.close(resolve); server.closeAllConnections?.(); });
+      await closeRedisClient();
+    `;
+    await run(process.execPath, ['--input-type=module', '-e', demo], {
+      cwd: new URL('..', import.meta.url), timeout: 5000, env: { ...process.env, NODE_ENV: 'development', REDIS_URL: redisUrl, PORT: '0' }
+    });
+
+    const stack = `
+      import assert from 'node:assert/strict';
+      import request from 'supertest';
+      const { default: app } = await import('./examples/observability-stack/server.js');
+      const response = await request(app).get('/api/public');
+      assert.equal(response.status, 200);
+      assert.equal(response.headers['ratelimit-degraded'], 'true');
+      process.exit(0);
+    `;
+    await run(process.execPath, ['--input-type=module', '-e', stack], {
+      cwd: new URL('..', import.meta.url), timeout: 5000, env: { ...process.env, NODE_ENV: 'test', REDIS_URL: redisUrl }
+    });
+  });
 
   describe('Option Validation (Fail-Fast)', () => {
     it('uses the documented defaults and preserves explicitly supplied options', async () => {
