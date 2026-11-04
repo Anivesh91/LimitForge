@@ -50,6 +50,58 @@ describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run re
     assert.equal((await request(app).get('/users/bob')).status, 429);
   });
 
+  it('uses Redis time for distributed windows even when application clocks differ', async (t) => {
+    const clientA = await connect();
+    const clientB = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await clientA.keys(`${prefix}:*`);
+      if (keys.length) await clientA.del(keys);
+      clientA.destroy();
+      clientB.destroy();
+    });
+    const storeA = new RedisStore({ client: clientA, prefix });
+    const storeB = new RedisStore({ client: { sendCommand: args => clientB.sendCommand(args) }, prefix });
+    const clock = Date.now;
+    function consumeWithClock(store, params, offset) {
+      Date.now = () => clock() + offset;
+      try { return store.consume(params); }
+      finally { Date.now = clock; }
+    }
+
+    const sliding = { key: 'sliding-clock', algorithm: 'sliding-window', limit: 1, windowMs: 60000 };
+    assert.equal((await consumeWithClock(storeA, sliding, -3600000)).allowed, true);
+    const blocked = await consumeWithClock(storeB, sliding, 3600000);
+    assert.equal(blocked.allowed, false);
+    assert.ok(blocked.retryAfter >= 55 && blocked.retryAfter <= 60);
+
+    const bucket = { key: 'bucket-clock', algorithm: 'token-bucket', capacity: 1, refillRate: 1, refillIntervalMs: 60000 };
+    assert.equal((await consumeWithClock(storeA, bucket, 3600000)).allowed, true);
+    assert.equal((await consumeWithClock(storeB, bucket, -3600000)).allowed, false);
+    assert.equal((await consumeWithClock(storeA, bucket, 3600000)).allowed, false);
+  });
+
+  it('retains explicit time overrides and does not refill when time moves backwards', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const sliding = { key: 'sliding-override', algorithm: 'sliding-window', limit: 1, windowMs: 60000 };
+    assert.equal((await store.consume({ ...sliding, now: 100000 })).allowed, true);
+    assert.equal((await store.consume({ ...sliding, now: 159999 })).allowed, false);
+    assert.equal((await store.consume({ ...sliding, now: 160000 })).allowed, true);
+
+    const bucket = { key: 'bucket-override', algorithm: 'token-bucket', capacity: 1, refillRate: 1, refillIntervalMs: 1000 };
+    assert.equal((await store.consume({ ...bucket, now: 100000 })).allowed, true);
+    assert.equal((await store.consume({ ...bucket, now: 99000 })).allowed, false);
+    assert.equal((await store.consume({ ...bucket, now: 100000 })).allowed, false);
+    assert.equal((await store.consume({ ...bucket, now: 101000 })).allowed, true);
+  });
+
   it('fails closed on a disconnected primary and resumes after reconnecting', async (t) => {
     const client = await connect();
     const prefix = `limitforge-test-${randomUUID()}`;

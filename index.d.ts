@@ -13,6 +13,7 @@ export interface StoreConsumeParams {
   refillRate?: number;
   refillIntervalMs?: number;
   cost?: number;
+  /** RedisStore uses server time by default. An explicit override requires a shared clock. */
   now?: number;
 }
 

@@ -149,7 +149,7 @@ LimitForge comes with zero-dependency native observability:
 
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:4077b46726b272a29ceb4d90d810107b10742441a74cc285082c28dadff8f5cc -->
+<!-- coderabbit-ai-generated-section:v1:18bf88a8f6d5d7a03fd6128bff7206505f5e480062cf8565156132a039052014 -->
 
 For `ResilientStore`, configure `timeoutMs` on the store itself; the middleware option applies to standalone stores.
 
@@ -160,6 +160,8 @@ Set `includeRoute: true` to use per-path quotas in global middleware, or supply 
 Automatic route-level detection works for limiters attached directly to Express routes. When wrapping a limiter in another handler, set `includeRoute` explicitly to choose the intended scope.
 
 This changes the default keys for global middleware. Existing per-path Redis counters are not migrated into the new shared quota. Plan for a quota reset and avoid mixing old and new versions when strict quotas are required; alternatively, use `includeRoute: true` to retain prior keying behavior.
+
+**Redis clock:** Sliding-window and token-bucket operations use the Redis server clock by default; the Redis user must have permission to run `TIME` in the scripts. Direct `RedisStore.consume()` calls may still supply `now` for deterministic testing; overriding it requires all callers to use a consistent clock. Redis server clock adjustments or failover to a server with a different clock can still affect quota timing. Avoid mixing old and new application versions while existing quotas are active, since older versions write application timestamps into the same keys.
 
 <!-- /coderabbit-ai-generated:v1 -->
 
