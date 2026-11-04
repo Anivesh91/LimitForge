@@ -149,7 +149,7 @@ LimitForge comes with zero-dependency native observability:
 
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:2eb7dcc8d19e3420326d2e515e8db5c4e3e2b2eb5fa0ed5ffe5a459c123ee6f4 -->
+<!-- coderabbit-ai-generated-section:v1:ff27511c34cb060d8f9a2bc223d4ad98c4662dc2b28067d53158040a44b22999 -->
 
 For `ResilientStore`, configure `timeoutMs` on the store itself; the middleware option applies to standalone stores.
 
@@ -166,6 +166,10 @@ This changes the default keys for global middleware. Existing per-path Redis cou
 **Dynamic fixed windows:** MemoryStore and RedisStore use the latest observed duration for an active window. Redis fixed-window counters use a versioned string: legacy numeric counters migrate on access and may be retained longer because their original start is unknown. The Redis ACL must allow `GET`, `PTTL`, `TIME`, and `SET` in scripts. Stop old instances before migrating; old and new versions cannot share migrated keys. Expired counters cannot be recovered when a later request increases the duration.
 
 **Fractional Redis windows:** Redis uses whole milliseconds, so fractional fixed and sliding window durations and their key TTLs round up. Durations too large for safe millisecond arithmetic are rejected before changing the quota state. Existing fixed-window keys without an expiry still produce an error and need operator review. Previously orphaned sliding-window keys also need review if they are not accessed again.
+
+**Key encoding and upgrade:** Key components escape delimiters and percent signs, and hashed identifiers have distinct markers. Simple unambiguous raw keys remain unchanged, but routes, prefixes or identifiers containing escaped characters and hashed identifiers produce different keys. `RedisStore` prefixes containing delimiters are encoded too. Existing affected counters are not migrated: legacy keys can combine multiple identities, so their counts cannot be split safely. During deployment, stop or drain old instances and let affected old quotas expire, or use an external protection mechanism if strict quota continuity is required. Avoid mixing old and new versions against the same store.
+
+A custom `keyGenerator` must uniquely encode its own components (for example, use `JSON.stringify([tenantId, userId])` for string identifiers). Custom hash functions must also avoid mapping different clients to the same output. For direct `RedisStore.consume()` calls, raw and encoded forms of an already-prefixed key are treated as equivalent; use one form consistently and supply unique keys.
 
 <!-- /coderabbit-ai-generated:v1 -->
 

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from 'redis';
 import express from 'express';
 import request from 'supertest';
-import { RedisStore, ResilientStore, rateLimiter } from '../src/index.js';
+import { RedisStore, ResilientStore, rateLimiter, buildRateLimitKey } from '../src/index.js';
 
 const redisUrl = process.env.REDIS_URL;
 
@@ -145,6 +145,56 @@ describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run re
     app.get('/users/:name', (req, res) => res.sendStatus(200));
     assert.equal((await request(app).get('/users/alice')).status, 200);
     assert.equal((await request(app).get('/users/bob')).status, 429);
+  });
+
+  it('separates previously colliding routes and clients with an encoded Redis prefix', async (t) => {
+    const client = await connect();
+    const otherClient = await connect();
+    const prefix = `limitforge:${randomUUID()}%`;
+    const encodedPrefix = prefix.replace(/%/g, '%25').replace(/:/g, '%3A');
+    t.after(async () => {
+      const keys = await client.keys(`${encodedPrefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+      otherClient.destroy();
+    });
+    const makeApp = redisClient => {
+      const app = express();
+      const store = new RedisStore({ client: redisClient, prefix });
+      const limiter = rateLimiter({ store, limit: 1, windowMs: 60000, keyGenerator: req => req.headers['x-client-id'] });
+      app.get('/x', limiter, (req, res) => res.sendStatus(200));
+      app.get('/x:part', limiter, (req, res) => res.sendStatus(200));
+      return app;
+    };
+    const appA = makeApp(client);
+    const appB = makeApp(otherClient);
+    const first = app => request(app).get('/x').set('x-client-id', 'part:bar');
+    const second = app => request(app).get('/xfoo').set('x-client-id', 'bar');
+    assert.equal((await first(appA)).status, 200);
+    assert.equal((await first(appB)).status, 429);
+    assert.equal((await second(appB)).status, 200);
+    assert.equal((await second(appA)).status, 429);
+    const keys = await client.keys(`${encodedPrefix}:*`);
+    assert.equal(keys.length, 2);
+    assert.ok(keys.includes(buildRateLimitKey({ prefix, method: 'GET', route: '/x', clientIdentifier: 'part:bar' })));
+    assert.ok(keys.includes(buildRateLimitKey({ prefix, method: 'GET', route: '/x:part', clientIdentifier: 'bar' })));
+  });
+
+  it('keeps malformed UTF-16 identifiers distinct in Redis', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const keys = ['\ud800', '\ud801', '\ufffd'].map(clientIdentifier =>
+      buildRateLimitKey({ prefix, route: '/x', clientIdentifier })
+    );
+    for (const key of keys) assert.equal((await store.consume({ key, limit: 1, windowMs: 60000 })).allowed, true);
+    for (const key of keys) assert.equal((await store.consume({ key, limit: 1, windowMs: 60000 })).allowed, false);
+    assert.equal((await client.keys(`${prefix}:*`)).length, 3);
   });
 
   it('retains a fixed-window quota when a request extends its duration', async (t) => {

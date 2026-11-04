@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { escapeKeySegment } from '../utils/keyBuilder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,10 +44,14 @@ export class RedisStore {
     if (!this.prefix) {
       return key;
     }
-    if (key.startsWith(`${this.prefix}:`)) {
+    const encodedPrefix = escapeKeySegment(this.prefix);
+    if (key.startsWith(`${encodedPrefix}:`)) {
       return key;
     }
-    return `${this.prefix}:${key}`;
+    if (key.startsWith(`${this.prefix}:`)) {
+      return `${encodedPrefix}${key.slice(this.prefix.length)}`;
+    }
+    return `${encodedPrefix}:${key}`;
   }
 
   async _evalFixedScript(key, windowMs) {
