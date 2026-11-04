@@ -117,7 +117,7 @@ export class ResilientStore extends EventEmitter {
       circuitState: this.circuitBreaker ? this.circuitBreaker.getState() : 'NONE'
     });
 
-    const fallbackResult = await this.fallbackStore.consume(params);
+    const fallbackResult = await withTimeout(this.fallbackStore.consume(params), this.timeoutMs);
     return {
       ...fallbackResult,
       degraded: true,

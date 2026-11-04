@@ -151,7 +151,13 @@ LimitForge comes with zero-dependency native observability:
 
 <!-- coderabbit-ai-generated-section:v1:8ce4fc1b13112faa4078e72aac9ec870a3b9991ba07ea529e576a3d6e07fa9ed -->
 
-For `ResilientStore`, configure `timeoutMs` on the store itself; the middleware option applies to standalone stores.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:2122a8260ab4b1648fb8225c924687203ab11f055c97d339db65044a61e2d217 -->
+
+For `ResilientStore`, configure `timeoutMs` on the store itself; the middleware option applies to standalone stores. The timeout applies separately to primary and fallback operations. If both are slow, total wait can approach twice the timeout, plus scheduling delays. Timed-out operations are not canceled and may still change quota state.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 **Route quota scope:** By default, middleware registered with `app.use()` shares a quota across paths for each client and HTTP method. Middleware attached directly to a matched route uses that route's pattern, so parameter values in the route share a quota. Different HTTP methods remain separate. Set `includeRoute: false` to share a quota across route-level handlers too.
 
