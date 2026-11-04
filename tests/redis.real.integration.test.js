@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { createClient } from 'redis';
 import express from 'express';
 import request from 'supertest';
-import { RedisStore, ResilientStore, rateLimiter, buildRateLimitKey } from '../src/index.js';
+import { MemoryStore, RedisStore, ResilientStore, rateLimiter, buildRateLimitKey } from '../src/index.js';
 
 const redisUrl = process.env.REDIS_URL;
 
@@ -32,6 +32,45 @@ describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run re
       const results = await Promise.all(Array.from({ length: 30 }, (_, i) => stores[i % 2].consume(params)));
       assert.equal(results.filter(result => result.allowed).length, 5, algorithm);
       assert.ok(await clientA.pTTL(`${prefix}:${algorithm}`) > 0, `${algorithm} has an expiry`);
+    }
+  });
+
+  it('infers the same token refill as MemoryStore for different intervals', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    const memory = new MemoryStore();
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+      memory.destroy();
+    });
+
+    const redisStores = [
+      new RedisStore({ client, prefix }),
+      new RedisStore({ client: { sendCommand: args => client.sendCommand(args) }, prefix })
+    ];
+    for (const [clientIndex, redis] of redisStores.entries()) {
+      for (const interval of [undefined, 100, 1000, 5000, 60000]) {
+        const params = {
+          key: `inferred-${clientIndex}-${interval}`,
+          algorithm: 'token-bucket',
+          limit: 10,
+          windowMs: 10000,
+          ...(interval === undefined ? {} : { refillIntervalMs: interval })
+        };
+        for (const [now, cost, allowed] of [
+          [100000, 10, true],
+          [100500, 1, false],
+          [101000, 1, true],
+          [101000, 1, false]
+        ]) {
+          const memoryResult = await memory.consume({ ...params, now, cost });
+          const redisResult = await redis.consume({ ...params, now, cost });
+          assert.equal(memoryResult.allowed, allowed, `MemoryStore: interval=${interval}, now=${now}`);
+          assert.deepEqual(redisResult, memoryResult, `RedisStore: interval=${interval}, now=${now}`);
+        }
+      }
     }
   });
 

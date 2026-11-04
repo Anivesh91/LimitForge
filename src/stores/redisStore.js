@@ -132,13 +132,13 @@ export class RedisStore {
         throw new RangeError(`SmartRate: RedisStore 'capacity' must be a positive integer (received: ${resolvedCapacity}).`);
       }
 
-      const resolvedRefillRate = refillRate ?? (limit && windowMs ? limit / (windowMs / 1000) : undefined);
-      if (typeof resolvedRefillRate !== 'number' || !Number.isFinite(resolvedRefillRate) || resolvedRefillRate <= 0) {
-        throw new RangeError(`SmartRate: RedisStore 'refillRate' must be a positive number (received: ${resolvedRefillRate}).`);
-      }
-
       if (typeof refillIntervalMs !== 'number' || !Number.isFinite(refillIntervalMs) || refillIntervalMs <= 0) {
         throw new RangeError(`SmartRate: RedisStore 'refillIntervalMs' must be a positive number (received: ${refillIntervalMs}).`);
+      }
+
+      const resolvedRefillRate = refillRate ?? (limit && windowMs ? (limit * refillIntervalMs) / windowMs : undefined);
+      if (typeof resolvedRefillRate !== 'number' || !Number.isFinite(resolvedRefillRate) || resolvedRefillRate <= 0) {
+        throw new RangeError(`SmartRate: RedisStore 'refillRate' must be a positive number (received: ${resolvedRefillRate}).`);
       }
 
       return this._consumeTokenBucket({

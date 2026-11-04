@@ -83,6 +83,23 @@ function createTestApp() {
 describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
 
   describe('RedisStore Token Bucket Unit Semantics', () => {
+    it('derives the refill rate from limit, window and interval when omitted', async () => {
+      const store = new RedisStore({ client: createAtomicRedisClient() });
+      for (const refillIntervalMs of [100, 1000, 5000, 60000]) {
+        const params = {
+          key: `inferred-${refillIntervalMs}`,
+          algorithm: 'token-bucket',
+          limit: 10,
+          windowMs: 10000,
+          refillIntervalMs
+        };
+        assert.equal((await store.consume({ ...params, now: 100000, cost: 10 })).allowed, true);
+        assert.equal((await store.consume({ ...params, now: 100500 })).allowed, false);
+        assert.equal((await store.consume({ ...params, now: 101000 })).allowed, true);
+        assert.equal((await store.consume({ ...params, now: 101000 })).allowed, false);
+      }
+    });
+
     it('allows initial burst up to configured capacity and blocks on empty bucket', async () => {
       const redisClient = createAtomicRedisClient();
       const redisStore = new RedisStore({ client: redisClient });
@@ -178,6 +195,13 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
         async () => redisStore.consume({ key, capacity: 5, refillRate: 1, refillIntervalMs: -100, algorithm: 'token-bucket' }),
         { name: 'RangeError', message: /refillIntervalMs/ }
       );
+
+      for (const refillIntervalMs of [0, -100, Infinity, NaN, '100']) {
+        await assert.rejects(
+          redisStore.consume({ key, limit: 5, windowMs: 10000, refillIntervalMs, algorithm: 'token-bucket' }),
+          { name: 'RangeError', message: /refillIntervalMs/ }
+        );
+      }
     });
 
     it('supports custom refillIntervalMs in RedisStore (e.g. 100 tokens per 60,000ms)', async () => {

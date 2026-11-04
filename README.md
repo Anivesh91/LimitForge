@@ -171,7 +171,15 @@ This changes the default keys for global middleware. Existing per-path Redis cou
 
 A custom `keyGenerator` must uniquely encode its own components (for example, use `JSON.stringify([tenantId, userId])` for string identifiers). Custom hash functions must also avoid mapping different clients to the same output. For direct `RedisStore.consume()` calls, raw and encoded forms of an already-prefixed key are treated as equivalent; use one form consistently and supply unique keys.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:4c8a295c15ae41ba9141cd81c5bbaa6d84a6447984cd71ee0402580f8a8a0214 -->
+
 **Default store isolation:** Each call to `rateLimiter()` without a `store` creates an independent `MemoryStore`. Reusing the same middleware instance reuses its store. This replaces the previous implicit shared default: applications that relied on separate default limiters sharing a quota must now pass the same store explicitly. Limiters using an explicitly shared store and the same key still share a counter. To isolate different policies on the same shared Redis store, set distinct `prefix` values and use the same prefix for each policy across all application replicas.
+
+**Inferred token refill:** When a direct store call omits `refillRate` and supplies `limit` and `windowMs`, the rate is `limit * refillIntervalMs / windowMs` tokens per interval. Redis now follows this calculation for custom intervals, matching MemoryStore. An existing Redis bucket uses the corrected rate for time elapsed since its last update; expired buckets cannot be recovered. Avoid mixing versions for affected buckets.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 -->
 
