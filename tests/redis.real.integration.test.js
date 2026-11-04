@@ -1,0 +1,643 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import net from 'node:net';
+import { createClient } from 'redis';
+import express from 'express';
+import request from 'supertest';
+import { MemoryStore, RedisStore, ResilientStore, rateLimiter, buildRateLimitKey, createPrometheusExporter } from '../src/index.js';
+
+const redisUrl = process.env.REDIS_URL;
+
+describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run real Redis integration tests' }, () => {
+  async function connect() {
+    const client = createClient({ url: redisUrl, disableOfflineQueue: true, socket: { reconnectStrategy: false } });
+    client.on('error', () => {});
+    await client.connect();
+    return client;
+  }
+
+  it('runs the quick start during Redis outages and reconnects when Redis returns', async (t) => {
+    const upstream = new URL(redisUrl);
+    if (upstream.protocol !== 'redis:') return t.skip('TCP proxy test requires redis://');
+    const upstreamHost = upstream.hostname;
+    const upstreamPort = Number(upstream.port || 6379);
+    const admin = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    let down = true;
+    const sockets = new Set();
+    const proxy = net.createServer(incoming => {
+      incoming.on('error', () => {});
+      if (down) return incoming.destroy();
+      const outgoing = net.connect({ host: upstreamHost, port: upstreamPort });
+      outgoing.on('error', () => incoming.destroy());
+      sockets.add(incoming);
+      sockets.add(outgoing);
+      incoming.on('close', () => { sockets.delete(incoming); outgoing.destroy(); });
+      outgoing.on('close', () => { sockets.delete(outgoing); incoming.destroy(); });
+      incoming.pipe(outgoing).pipe(incoming);
+    });
+    await new Promise((resolve, reject) => {
+      proxy.once('error', reject);
+      proxy.listen(0, '127.0.0.1', resolve);
+    });
+    let example;
+    t.after(async () => {
+      if (example?.redisClient.isOpen) await example.redisClient.disconnect();
+      example?.store.fallbackStore.destroy();
+      for (const socket of sockets) socket.destroy();
+      await new Promise(resolve => proxy.close(resolve));
+      const keys = await admin.keys(`${prefix}:*`);
+      if (keys.length) await admin.del(keys);
+      admin.destroy();
+    });
+
+    const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+    const code = readme.split(/## Quick Start\r?\n/)[1]?.match(/```javascript\r?\n([\s\S]*?)\r?\n```/)?.[1];
+    const redisSetting = "process.env.REDIS_URL || 'redis://localhost:6379'";
+    const listener = "app.listen(3000, () => console.log('Server running on http://localhost:3000'));";
+    assert.ok(code?.includes(redisSetting) && code.includes(listener));
+    assert.match(code, /    store,\r?\n    limit: 100,/);
+    upstream.hostname = '127.0.0.1';
+    upstream.port = String(proxy.address().port);
+    const runnable = code.replace(/^import[\s\S]*?from '[^']+';\r?\n/gm, '')
+      .replace(redisSetting, JSON.stringify(upstream.toString()))
+      .replace(/    store,\r?\n    limit: 100,/, `    store,\n    prefix: '${prefix}',\n    limit: 100,`)
+      .replace(listener, 'return { app, redisClient, store };');
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    example = await new AsyncFunction('express', 'createClient', 'rateLimiter', 'RedisStore', 'MemoryStore', 'ResilientStore', 'createPrometheusExporter', runnable)(
+      express, createClient, rateLimiter, RedisStore, MemoryStore, ResilientStore, createPrometheusExporter
+    );
+
+    const first = await request(example.app).get('/metrics');
+    assert.equal(first.status, 200);
+    assert.equal(first.headers['ratelimit-degraded'], 'true');
+    down = false;
+    const waitUntil = async predicate => {
+      const deadline = Date.now() + 10000;
+      while (!predicate()) {
+        if (Date.now() > deadline) throw new Error('Redis reconnect did not complete');
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+    };
+    await waitUntil(() => example.redisClient.isReady);
+    const recovered = await request(example.app).get('/metrics');
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.headers['ratelimit-degraded'], undefined);
+    assert.equal(recovered.headers['ratelimit-remaining'], '99');
+
+    down = true;
+    for (const socket of sockets) socket.destroy();
+    await waitUntil(() => !example.redisClient.isReady);
+    const degraded = await request(example.app).get('/metrics');
+    assert.equal(degraded.status, 200);
+    assert.equal(degraded.headers['ratelimit-degraded'], 'true');
+    down = false;
+    await waitUntil(() => example.redisClient.isReady);
+    const resumed = await request(example.app).get('/metrics');
+    assert.equal(resumed.headers['ratelimit-degraded'], undefined);
+    assert.equal(resumed.headers['ratelimit-remaining'], '98');
+  });
+
+  it('reports the actual fallback store when the demo breaker is open', async (t) => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousRedisUrl = process.env.REDIS_URL;
+    let demo;
+    try {
+      process.env.NODE_ENV = 'development';
+      process.env.REDIS_URL = redisUrl;
+      const moduleUrl = new URL('../examples/express-demo/routes.js', import.meta.url);
+      moduleUrl.searchParams.set('instance', randomUUID());
+      demo = await import(moduleUrl.href);
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousRedisUrl === undefined) delete process.env.REDIS_URL;
+      else process.env.REDIS_URL = previousRedisUrl;
+    }
+    t.after(() => demo.closeRedisClient());
+    const app = express();
+    app.use('/api', demo.default);
+    const deadline = Date.now() + 5000;
+    while (!(await request(app).get('/api/status')).body.redisConnected) {
+      if (Date.now() > deadline) throw new Error('Demo Redis connection did not become ready');
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    const route = demo.default.stack.find(layer => layer.route?.path === '/distributed').route;
+    const limiter = route.stack.find(layer => layer.handle.circuitBreaker).handle;
+    limiter.circuitBreaker.trip(new Error('synthetic outage'));
+    const response = await request(app).get('/api/distributed');
+    assert.equal(response.status, 200);
+    assert.equal(response.headers['ratelimit-degraded'], 'true');
+    assert.equal(response.body.store, 'memory');
+  });
+
+  it('enforces each algorithm atomically across independent clients', async (t) => {
+    const clientA = await connect();
+    const clientB = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await clientA.keys(`${prefix}:*`);
+      if (keys.length) await clientA.del(keys);
+      clientA.destroy();
+      clientB.destroy();
+    });
+    const stores = [new RedisStore({ client: clientA, prefix }), new RedisStore({ client: clientB, prefix })];
+    for (const algorithm of ['fixed-window', 'sliding-window', 'token-bucket']) {
+      const params = { key: algorithm, algorithm, limit: 5, windowMs: 60000, capacity: 5, refillRate: 0.000001, refillIntervalMs: 1000 };
+      const results = await Promise.all(Array.from({ length: 30 }, (_, i) => stores[i % 2].consume(params)));
+      assert.equal(results.filter(result => result.allowed).length, 5, algorithm);
+      assert.ok(await clientA.pTTL(`${prefix}:${algorithm}`) > 0, `${algorithm} has an expiry`);
+    }
+  });
+
+  it('enforces default quotas in Redis without standard quota headers when disabled', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const app = express();
+    app.get('/', rateLimiter({ store, standardHeaders: false }), (req, res) => res.sendStatus(200));
+    for (let i = 0; i < 60; i++) {
+      const res = await request(app).get('/');
+      assert.equal(res.status, 200);
+      assert.equal(res.headers['ratelimit-limit'], undefined);
+    }
+    const blocked = await request(app).get('/');
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers['ratelimit-limit'], undefined);
+    assert.equal(blocked.headers['ratelimit-remaining'], undefined);
+    assert.equal(blocked.headers['ratelimit-reset'], undefined);
+    assert.ok(Number(blocked.headers['retry-after']) > 0);
+    const keys = await client.keys(`${prefix}:*`);
+    assert.equal(keys.length, 1);
+    const ttl = await client.pTTL(keys[0]);
+    assert.ok(ttl > 0 && ttl <= 60000);
+  });
+
+  it('infers the same token refill as MemoryStore for different intervals', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    const memory = new MemoryStore();
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+      memory.destroy();
+    });
+
+    const redisStores = [
+      new RedisStore({ client, prefix }),
+      new RedisStore({ client: { sendCommand: args => client.sendCommand(args) }, prefix })
+    ];
+    for (const [clientIndex, redis] of redisStores.entries()) {
+      for (const interval of [undefined, 100, 1000, 5000, 60000]) {
+        const params = {
+          key: `inferred-${clientIndex}-${interval}`,
+          algorithm: 'token-bucket',
+          limit: 10,
+          windowMs: 10000,
+          ...(interval === undefined ? {} : { refillIntervalMs: interval })
+        };
+        for (const [now, cost, allowed] of [
+          [100000, 10, true],
+          [100500, 1, false],
+          [101000, 1, true],
+          [101000, 1, false]
+        ]) {
+          const memoryResult = await memory.consume({ ...params, now, cost });
+          const redisResult = await redis.consume({ ...params, now, cost });
+          assert.equal(memoryResult.allowed, allowed, `MemoryStore: interval=${interval}, now=${now}`);
+          assert.deepEqual(redisResult, memoryResult, `RedisStore: interval=${interval}, now=${now}`);
+        }
+      }
+    }
+  });
+
+  for (const algorithm of ['fixed-window', 'sliding-window']) {
+    it(`accepts fractional ${algorithm} windows without leaving unexpired keys`, async (t) => {
+      const client = await connect();
+      const prefix = `limitforge-test-${randomUUID()}`;
+      t.after(async () => {
+        const keys = await client.keys(`${prefix}:*`);
+        if (keys.length) await client.del(keys);
+        client.destroy();
+      });
+      const store = new RedisStore({ client, prefix });
+      for (const windowMs of [1.5, 1000.5]) {
+        const key = `fraction-${windowMs}`;
+        const result = await store.consume({ key, algorithm, limit: 1, windowMs });
+        assert.equal(result.allowed, true);
+        const ttl = await client.pTTL(`${prefix}:${key}`);
+        assert.notEqual(ttl, -1, 'key must have an expiry or already be expired');
+        if (windowMs === 1000.5) {
+          assert.ok(ttl > 0 && ttl <= 1001);
+          assert.equal((await store.consume({ key, algorithm, limit: 1, windowMs })).allowed, false);
+        }
+      }
+
+      const app = express();
+      app.get('/', rateLimiter({ store, algorithm, limit: 1, windowMs: 1000.5 }), (req, res) => res.sendStatus(200));
+      assert.equal((await request(app).get('/')).status, 200);
+      assert.equal((await request(app).get('/')).status, 429);
+    });
+
+    it(`rejects an oversized ${algorithm} window before changing Redis state`, async (t) => {
+      const client = await connect();
+      const prefix = `limitforge-test-${randomUUID()}`;
+      t.after(async () => {
+        const keys = await client.keys(`${prefix}:*`);
+        if (keys.length) await client.del(keys);
+        client.destroy();
+      });
+      const store = new RedisStore({ client, prefix });
+      const fresh = { key: 'fresh', algorithm, limit: 2, windowMs: Number.MAX_VALUE };
+      await assert.rejects(store.consume(fresh), /out of range/);
+      assert.equal(await client.exists(`${prefix}:fresh`), 0);
+
+      const active = { key: 'active', algorithm, limit: 2, windowMs: 60000 };
+      assert.equal((await store.consume(active)).allowed, true);
+      await assert.rejects(store.consume({ ...active, windowMs: Number.MAX_VALUE }), /out of range/);
+      const after = await store.consume(active);
+      assert.equal(after.allowed, true);
+      assert.equal(after.count, 2);
+      assert.ok(await client.pTTL(`${prefix}:active`) > 0);
+    });
+  }
+
+  it('does not discard existing quota for extremely small positive windows', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const now = 1000000000000;
+    // Freeze Redis TIME for the fixed-window script so both operations fall in
+    // the same millisecond without depending on network timing.
+    const fixedClient = {
+      eval(script, options) {
+        const call = 'local clock = redis.call("TIME")';
+        assert.ok(script.includes(call));
+        return client.eval(script.replace(call, 'local clock = {"1000000000", "0"}'), options);
+      }
+    };
+    const fixed = new RedisStore({ client: fixedClient, prefix });
+    await client.set(`${prefix}:tiny-fixed`, `lf1|1|${now}|0`, { PX: 60000 });
+    assert.equal((await fixed.consume({ key: 'tiny-fixed', limit: 1, windowMs: Number.MIN_VALUE })).allowed, false);
+
+    await client.zAdd(`${prefix}:tiny-sliding`, [{ score: now, value: 'prior' }]);
+    await client.pExpire(`${prefix}:tiny-sliding`, 60000);
+    const sliding = new RedisStore({ client, prefix });
+    assert.equal((await sliding.consume({ key: 'tiny-sliding', algorithm: 'sliding-window', limit: 1, windowMs: Number.MIN_VALUE, now })).allowed, false);
+  });
+
+  it('reports retry timing from the rounded sliding window duration', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const now = 1000000000000;
+    await client.zAdd(`${prefix}:retry`, [{ score: now, value: 'prior' }]);
+    await client.pExpire(`${prefix}:retry`, 60000);
+    const result = await new RedisStore({ client, prefix }).consume({
+      key: 'retry', algorithm: 'sliding-window', limit: 1, windowMs: 1000.000001, now
+    });
+    assert.equal(result.allowed, false);
+    assert.equal(result.retryAfter, 2);
+  });
+
+  it('shares the global quota across arbitrary paths using Redis', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const app = express();
+    app.use(rateLimiter({ limit: 1, windowMs: 60000, store: new RedisStore({ client, prefix }) }));
+    app.get('/users/:name', (req, res) => res.sendStatus(200));
+    assert.equal((await request(app).get('/users/alice')).status, 200);
+    assert.equal((await request(app).get('/users/bob')).status, 429);
+  });
+
+  it('keeps explicitly shared Redis policies isolated with different prefixes', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const settings = { store, limit: 2, windowMs: 60000 };
+    const app = express();
+    app.get('/same', rateLimiter({ ...settings, prefix: 'policy-a' }), rateLimiter({ ...settings, prefix: 'policy-b' }), (req, res) => res.sendStatus(200));
+    assert.equal((await request(app).get('/same')).status, 200);
+    assert.equal((await request(app).get('/same')).status, 200);
+    assert.equal((await request(app).get('/same')).status, 429);
+    assert.equal((await client.keys(`${prefix}:*`)).length, 2);
+  });
+
+  it('separates previously colliding routes and clients with an encoded Redis prefix', async (t) => {
+    const client = await connect();
+    const otherClient = await connect();
+    const prefix = `limitforge:${randomUUID()}%`;
+    const encodedPrefix = prefix.replace(/%/g, '%25').replace(/:/g, '%3A');
+    t.after(async () => {
+      const keys = await client.keys(`${encodedPrefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+      otherClient.destroy();
+    });
+    const makeApp = redisClient => {
+      const app = express();
+      const store = new RedisStore({ client: redisClient, prefix });
+      const limiter = rateLimiter({ store, limit: 1, windowMs: 60000, keyGenerator: req => req.headers['x-client-id'] });
+      app.get('/x', limiter, (req, res) => res.sendStatus(200));
+      app.get('/x:part', limiter, (req, res) => res.sendStatus(200));
+      return app;
+    };
+    const appA = makeApp(client);
+    const appB = makeApp(otherClient);
+    const first = app => request(app).get('/x').set('x-client-id', 'part:bar');
+    const second = app => request(app).get('/xfoo').set('x-client-id', 'bar');
+    assert.equal((await first(appA)).status, 200);
+    assert.equal((await first(appB)).status, 429);
+    assert.equal((await second(appB)).status, 200);
+    assert.equal((await second(appA)).status, 429);
+    const keys = await client.keys(`${encodedPrefix}:*`);
+    assert.equal(keys.length, 2);
+    assert.ok(keys.includes(buildRateLimitKey({ prefix, method: 'GET', route: '/x', clientIdentifier: 'part:bar' })));
+    assert.ok(keys.includes(buildRateLimitKey({ prefix, method: 'GET', route: '/x:part', clientIdentifier: 'bar' })));
+  });
+
+  it('keeps malformed UTF-16 identifiers distinct in Redis', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const keys = ['\ud800', '\ud801', '\ufffd'].map(clientIdentifier =>
+      buildRateLimitKey({ prefix, route: '/x', clientIdentifier })
+    );
+    for (const key of keys) assert.equal((await store.consume({ key, limit: 1, windowMs: 60000 })).allowed, true);
+    for (const key of keys) assert.equal((await store.consume({ key, limit: 1, windowMs: 60000 })).allowed, false);
+    assert.equal((await client.keys(`${prefix}:*`)).length, 3);
+  });
+
+  it('retains a fixed-window quota when a request extends its duration', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const app = express();
+    app.get('/', rateLimiter({
+      store,
+      limit: 2,
+      windowMs: req => req.headers['x-window'] === 'long' ? 7000 : 700
+    }), (req, res) => res.sendStatus(200));
+
+    assert.equal((await request(app).get('/')).status, 200);
+    assert.equal((await request(app).get('/').set('x-window', 'long')).status, 200);
+    const keys = await client.keys(`${prefix}:*`);
+    assert.equal(keys.length, 1);
+    assert.ok(await client.pTTL(keys[0]) > 6000, 'extended window must outlive the original TTL');
+    const blocked = await request(app).get('/').set('x-window', 'long');
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers['ratelimit-remaining'], '0');
+  });
+
+  it('applies shorter windows from the original start and keeps fixed deadlines', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const params = { key: 'shorten', limit: 2, windowMs: 10000 };
+    assert.equal((await store.consume(params)).count, 1);
+    const key = `${prefix}:shorten`;
+    const original = await client.get(key);
+    const [marker, count, start] = original.split('|');
+    await client.set(key, `${marker}|${count}|${Number(start) - 5000}|0`, { PX: 10000 });
+    const reset = await store.consume({ ...params, windowMs: 1000 });
+    assert.equal(reset.allowed, true);
+    assert.equal(reset.count, 1);
+
+    const firstTtl = await client.pTTL(key);
+    await store.consume({ ...params, windowMs: 1000 });
+    assert.ok(await client.pTTL(key) <= firstTtl, 'ordinary traffic must not extend a fixed window');
+  });
+
+  it('migrates legacy numeric counters without losing counts or shortening their TTL', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const key = `${prefix}:legacy`;
+    await client.set(key, '2', { PX: 5000 });
+    const result = await store.consume({ key: 'legacy', limit: 3, windowMs: 1000 });
+    assert.equal(result.count, 3);
+    assert.equal(result.allowed, true);
+    assert.ok(await client.pTTL(key) > 4000);
+    assert.match(await client.get(key), /^lf1\|3\|\d+\|\d+$/);
+    assert.equal((await store.consume({ key: 'legacy', limit: 3, windowMs: 1000 })).allowed, false);
+    await assert.rejects(client.incr(key));
+
+    await client.set(`${prefix}:legacy-short`, '2', { PX: 5000 });
+    const extended = await store.consume({ key: 'legacy-short', limit: 3, windowMs: 60000 });
+    assert.equal(extended.count, 3);
+    assert.ok(await client.pTTL(`${prefix}:legacy-short`) > 50000);
+  });
+
+  it('preserves legacy keys when migration cannot safely proceed', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    await client.set(`${prefix}:orphan`, '7');
+    await assert.rejects(store.consume({ key: 'orphan', limit: 10, windowMs: 1000 }), /without an expiration TTL/);
+    assert.equal(await client.get(`${prefix}:orphan`), '7');
+    await client.set(`${prefix}:overflow`, '9223372036854775807', { PX: 5000 });
+    await assert.rejects(store.consume({ key: 'overflow', limit: 10, windowMs: 1000 }), /overflow/);
+    assert.equal(await client.get(`${prefix}:overflow`), '9223372036854775807');
+  });
+
+  it('preserves signed and high-value Redis counters during migration', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    await client.set(`${prefix}:negative`, '-2', { PX: 5000 });
+    assert.equal((await store.consume({ key: 'negative', limit: 10, windowMs: 1000 })).count, -1);
+    assert.equal((await store.consume({ key: 'negative', limit: 10, windowMs: 1000 })).count, 0);
+    await client.set(`${prefix}:large`, '9007199254740992', { PX: 5000 });
+    await store.consume({ key: 'large', limit: 10, windowMs: 1000 });
+    assert.match(await client.get(`${prefix}:large`), /^lf1\|9007199254740993\|\d+\|\d+$/);
+    await client.set(`${prefix}:near-overflow`, '9223372036854775806', { PX: 5000 });
+    const nearOverflow = await store.consume({ key: 'near-overflow', limit: 10, windowMs: 1000 });
+    assert.equal(nearOverflow.allowed, false);
+    assert.ok(nearOverflow.count > 0);
+  });
+
+  it('migrates an existing counter atomically across Redis clients', async (t) => {
+    const clientA = await connect();
+    const clientB = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await clientA.keys(`${prefix}:*`);
+      if (keys.length) await clientA.del(keys);
+      clientA.destroy();
+      clientB.destroy();
+    });
+    await clientA.set(`${prefix}:legacy`, '2', { PX: 5000 });
+    const stores = [new RedisStore({ client: clientA, prefix }), new RedisStore({ client: clientB, prefix })];
+    const results = await Promise.all(Array.from({ length: 20 }, (_, i) => stores[i % 2].consume({ key: 'legacy', limit: 10, windowMs: 60000 })));
+    assert.equal(results.filter(result => result.allowed).length, 8);
+    assert.equal(Math.max(...results.map(result => result.count)), 22);
+    assert.match(await clientA.get(`${prefix}:legacy`), /^lf1\|22\|\d+\|\d+$/);
+  });
+
+  it('uses Redis time for distributed windows even when application clocks differ', async (t) => {
+    const clientA = await connect();
+    const clientB = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await clientA.keys(`${prefix}:*`);
+      if (keys.length) await clientA.del(keys);
+      clientA.destroy();
+      clientB.destroy();
+    });
+    const storeA = new RedisStore({ client: clientA, prefix });
+    const storeB = new RedisStore({ client: { sendCommand: args => clientB.sendCommand(args) }, prefix });
+    const clock = Date.now;
+    function consumeWithClock(store, params, offset) {
+      Date.now = () => clock() + offset;
+      try { return store.consume(params); }
+      finally { Date.now = clock; }
+    }
+
+    const sliding = { key: 'sliding-clock', algorithm: 'sliding-window', limit: 1, windowMs: 60000 };
+    assert.equal((await consumeWithClock(storeA, sliding, -3600000)).allowed, true);
+    const blocked = await consumeWithClock(storeB, sliding, 3600000);
+    assert.equal(blocked.allowed, false);
+    assert.ok(blocked.retryAfter >= 55 && blocked.retryAfter <= 60);
+
+    const bucket = { key: 'bucket-clock', algorithm: 'token-bucket', capacity: 1, refillRate: 1, refillIntervalMs: 60000 };
+    assert.equal((await consumeWithClock(storeA, bucket, 3600000)).allowed, true);
+    assert.equal((await consumeWithClock(storeB, bucket, -3600000)).allowed, false);
+    assert.equal((await consumeWithClock(storeA, bucket, 3600000)).allowed, false);
+  });
+
+  it('retains explicit time overrides and does not refill when time moves backwards', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const sliding = { key: 'sliding-override', algorithm: 'sliding-window', limit: 1, windowMs: 60000 };
+    assert.equal((await store.consume({ ...sliding, now: 100000 })).allowed, true);
+    assert.equal((await store.consume({ ...sliding, now: 159999 })).allowed, false);
+    assert.equal((await store.consume({ ...sliding, now: 160000 })).allowed, true);
+
+    const bucket = { key: 'bucket-override', algorithm: 'token-bucket', capacity: 1, refillRate: 1, refillIntervalMs: 1000 };
+    assert.equal((await store.consume({ ...bucket, now: 100000 })).allowed, true);
+    assert.equal((await store.consume({ ...bucket, now: 99000 })).allowed, false);
+    assert.equal((await store.consume({ ...bucket, now: 100000 })).allowed, false);
+    assert.equal((await store.consume({ ...bucket, now: 101000 })).allowed, true);
+  });
+
+  it('fails closed on a disconnected primary and resumes after reconnecting', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    const resilient = new ResilientStore({ primaryStore: new RedisStore({ client, prefix }), circuitBreaker: false });
+    t.after(() => resilient.fallbackStore.destroy());
+    const app = express();
+    app.get('/', rateLimiter({ limit: 2, windowMs: 60000, store: resilient, onStoreError: 'fail-closed' }), (req, res) => res.sendStatus(200));
+    assert.equal((await request(app).get('/')).status, 200);
+    client.destroy();
+    const failed = await request(app).get('/');
+    assert.equal(failed.status, 503);
+    assert.equal(failed.headers['ratelimit-degraded'], 'true');
+    assert.equal(resilient.fallbackStore.store.size, 0);
+    const recoveredClient = await connect();
+    t.after(async () => {
+      const keys = await recoveredClient.keys(`${prefix}:*`);
+      if (keys.length) await recoveredClient.del(keys);
+      recoveredClient.destroy();
+    });
+    resilient.primaryStore = new RedisStore({ client: recoveredClient, prefix });
+    assert.equal((await request(app).get('/')).status, 200);
+    assert.equal((await request(app).get('/')).status, 429);
+  });
+
+  it('fails closed when a Redis operation times out even if it later executes', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    let finished;
+    const executed = new Promise(resolve => { finished = resolve; });
+    const delayedClient = {
+      async eval(script, options) {
+        await gate;
+        try { return await client.eval(script, options); }
+        finally { finished(); }
+      }
+    };
+    const resilient = new ResilientStore({ primaryStore: new RedisStore({ client: delayedClient, prefix }), timeoutMs: 10 });
+    t.after(() => resilient.fallbackStore.destroy());
+    const app = express();
+    app.get('/', rateLimiter({ limit: 2, windowMs: 60000, store: resilient, onStoreError: 'fail-closed' }), (req, res) => res.sendStatus(200));
+    try {
+      assert.equal((await request(app).get('/')).status, 503);
+      assert.equal(resilient.fallbackStore.store.size, 0);
+    } finally {
+      release();
+      await executed;
+    }
+    const keys = await client.keys(`${prefix}:*`);
+    assert.equal(keys.length, 1);
+    assert.match(await client.get(keys[0]), /^lf1\|1\|\d+\|\d+$/);
+  });
+});

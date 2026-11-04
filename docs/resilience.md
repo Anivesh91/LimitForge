@@ -51,9 +51,22 @@ flowchart TD
 
 If Redis experiences high CPU load, network latency, or an unreachable socket, queries can stall indefinitely.
 
-- The `timeoutMs` option (default: `250ms`) wraps every store operation in an active timer guard via `withTimeout()`.
-- If the store does not return within `timeoutMs`, the operation is aborted and raises a `StoreTimeoutError`.
-- Active timers are automatically cleared when operations resolve within the threshold to prevent timer leaks.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:c25772edb918a0fec1531921df5269774fa153d1229a2a07a83fafa14049eeeb -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:00122c954c70c2c3d13e0d018b229ad2b3f7621f750c6e6c52323165b67b4fd0 -->
+
+- Standalone store operations have a 250 ms default timeout. For a `ResilientStore`, configure `timeoutMs` on the store itself; it defaults to 250 ms and applies separately to the primary and the fallback. This changes the previous behavior, where the fallback had no timeout. If both stages are slow, the total wait may approach twice the timeout, plus scheduling delays. Synchronous code that blocks the event loop cannot be interrupted by this timer.
+- A timeout raises `StoreTimeoutError` and stops waiting. It does not cancel a running operation: either store can still execute and change quota state after the timeout. Redis commands may also run after reconnect, depending on client configuration. Configure client queueing and connection timeouts for your deployment.
+
+<!-- /coderabbit-ai-generated:v1 -->
+- When strict global enforcement is required, use `onStoreError: 'fail-closed'`. During timeout or outage, it returns 503 rather than using the local fallback. A timed-out command may still affect future quota decisions.
+- Active timers are cleared when operations resolve within the threshold.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ```javascript
 import { rateLimiter, RedisStore } from 'limitforge';
@@ -70,7 +83,13 @@ const limiter = rateLimiter({
 
 ## 3. Store Failure Policies (`onStoreError`)
 
-When a standalone store (without a fallback) fails or times out, `onStoreError` dictates the recovery behavior:
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:35b4559f02f6b293fe39fed5b349cd7a19560e7e5aa74eb750c509a56f29d021 -->
+
+When a standalone store fails or times out, `onStoreError` dictates recovery. With `ResilientStore`, `fail-closed` rejects primary failures before using the fallback; other policies apply if the fallback also fails:
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 | Policy | Behavior | HTTP Status | Response Header | Use Case |
 | :--- | :--- | :---: | :--- | :--- |

@@ -39,20 +39,20 @@ let chaosActive = false;
 let redisClient = null;
 
 try {
-  redisClient = createClient({ url: REDIS_URL });
+  redisClient = createClient({ url: REDIS_URL, disableOfflineQueue: true, socket: { connectTimeout: 1000 } });
   redisClient.on('error', (err) => {
     // expected during offline chaos states
   });
-  await redisClient.connect().catch(() => {});
+  redisClient.connect().catch(() => {});
 } catch {
 }
 
-const primaryRedisStore = new RedisStore({ client: redisClient });
+const primaryRedisStore = redisClient ? new RedisStore({ client: redisClient }) : null;
 
 const primaryStoreWrapper = {
   name: 'redis',
   async consume(params) {
-    if (chaosActive || !redisClient || !redisClient.isOpen) {
+    if (chaosActive || !redisClient || !redisClient.isReady) {
       const error = new Error('Chaos Injection: Redis cluster unreachable (ECONNREFUSED)');
       error.code = 'ECONNREFUSED';
       throw error;

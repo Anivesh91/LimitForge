@@ -7,6 +7,7 @@ import {
   CircuitBreaker,
   OpenTelemetryBridge,
   MetricsCollector,
+  MetricsCollectorInput,
   defaultMetricsCollector,
   StoreTimeoutError,
   CircuitBreakerOpenError,
@@ -36,6 +37,28 @@ const memStore = new MemoryStore({ cleanupIntervalMs: 30000 });
 const cb = new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 5000, breakerId: 'cb-1' });
 
 const collector = new MetricsCollector();
+const configurableCollector = new MetricsCollector({ maxSeries: 20, storeDurationBuckets: [0.1, 1] });
+const compatibleCollector: MetricsCollectorInput = {
+  recordRequest() {}, recordStoreDuration() {}, recordCircuitBreakerState() {},
+  getSnapshot: () => ({}), reset() {}
+};
+rateLimiter({ metrics: compatibleCollector });
+rateLimiter({ metricsCollector: compatibleCollector });
+collector.recordRequest({ outcome: 'allowed', algorithm: 'sliding-window', method: 'GET', normalized_route: '/api', store: 'redis' });
+collector.recordStoreError({ store: 'redis', error_type: 'timeout' });
+collector.recordDegradedRequest({ reason: 'fallback' });
+collector.recordCircuitBreakerState('OPEN', { breaker: 'main' });
+collector.recordCircuitBreakerState(CIRCUIT_STATE.OPEN, { breaker: 'main' });
+collector.recordCircuitBreakerState('CLOSED');
+collector.incrementCounter('custom_total', { route: '/api' }, 2);
+collector.setGauge('custom_gauge', 3, { node: 'a' });
+collector.observeHistogram('custom_duration', 0.2, { operation: 'get' }, [0.1, 1]);
+// @ts-expect-error state is a string, not an object
+collector.recordCircuitBreakerState({ state: 'OPEN', breaker: 'main' });
+collector.recordStoreDuration(0.125, { store: 'redis' });
+collector.recordStoreDuration(0.125);
+// @ts-expect-error duration must be a number in seconds
+collector.recordStoreDuration({ store: 'redis', operation: 'get', outcome: 'success', duration_ms: 125 });
 const otel = new OpenTelemetryBridge();
 
 const fullLimiter = rateLimiter({
@@ -59,6 +82,8 @@ const fullLimiter = rateLimiter({
   metrics: collector,
   metricsCollector: collector,
   routeNormalizer: (req: Request) => '/normalized',
+  includeRoute: true,
+  standardHeaders: false,
   openTelemetry: otel,
   statusCode: 429,
   message: { error: 'Quota exceeded' },
@@ -102,5 +127,11 @@ const cbErr = new CircuitBreakerOpenError('open', 5000);
 
 // 6. Prometheus exporter
 app.get('/metrics', createPrometheusExporter(collector));
+app.get('/metrics-options', createPrometheusExporter({ collector }));
+app.get('/metrics-alias', createPrometheusExporter({ metricsCollector: collector }));
+app.get('/metrics-custom', createPrometheusExporter({ getSnapshot: () => ({}) }));
+app.get('/metrics-default', createPrometheusExporter());
+// @ts-expect-error collector must implement getSnapshot
+createPrometheusExporter({ collector: {} });
 
 console.log('TypeScript definitions test passed compilation!');

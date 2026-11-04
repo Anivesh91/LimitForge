@@ -59,25 +59,28 @@ import {
 const app = express();
 
 // 1. Connect Redis Client (Optional for distributed setups)
-const redisClient = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
+const redisClient = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379',
+  disableOfflineQueue: true,
+  socket: { connectTimeout: 1000 }
+});
 redisClient.on('error', (err) => console.warn('Redis error:', err.message));
-await redisClient.connect().catch(() => {});
+redisClient.connect().catch((err) => console.warn('Redis connection stopped:', err.message));
 
 // 2. Configure Store (ResilientStore falls back to MemoryStore if Redis fails)
-const store = redisClient.isOpen
-  ? new ResilientStore({
-      primaryStore: new RedisStore({ client: redisClient }),
-      fallbackStore: new MemoryStore(),
-      timeoutMs: 150
-    })
-  : new MemoryStore();
+const store = new ResilientStore({
+  primaryStore: new RedisStore({ client: redisClient }),
+  fallbackStore: new MemoryStore(),
+  timeoutMs: 150
+});
 
 // 3. Apply Rate Limiting Middleware
 app.use(
   rateLimiter({
     store,
     limit: 100,             // 100 requests
-    windowMs: 60 * 1000     // per 1 minute
+    windowMs: 60 * 1000,    // per 1 minute
+    metrics: true
   })
 );
 
@@ -88,7 +91,8 @@ app.post(
     algorithm: 'token-bucket',
     capacity: 10,
     refillRate: 1,
-    refillIntervalMs: 1000
+    refillIntervalMs: 1000,
+    metrics: true
   }),
   (req, res) => res.json({ success: true })
 );
@@ -98,6 +102,20 @@ app.get('/metrics', createPrometheusExporter());
 
 app.listen(3000, () => console.log('Server running on http://localhost:3000'));
 ```
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:ce97d92b5e51df51ac3e07d9ff5bdbff1c738f11700d8fc0e8a9d2331845dc4e -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:9ac510888b221f5073490bb730525f55e769a04ae9d2ff6f389485da1b3a31b5 -->
+
+The application starts while Redis connects or reconnects. Requests use the memory fallback while Redis is unavailable and return to Redis after it recovers and the circuit breaker permits a successful probe. Memory quotas are local to each application instance and do not migrate to Redis. For strict global enforcement, configure `onStoreError: "fail-closed"`. The client disables offline command queueing so commands are not replayed after reconnect; commands already sent can still finish after a timeout.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ---
 
@@ -115,7 +133,14 @@ app.listen(3000, () => console.log('Server running on http://localhost:3000'));
 
 When central stores (Redis) fail, slow down, or become network-partitioned, LimitForge prevents cascading API outages:
 
-- **Store Timeout Guard (`timeoutMs`)**: Bounds store execution (default: 250ms). Stalled queries abort promptly instead of queuing indefinitely.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:d1c5eb220eeefb60cbce0f571a673e57619f9b7f1ec110cda2bed8cf6cefb2f8 -->
+
+The timeout bounds how long middleware waits for a store. A timed-out operation may still finish and change store state.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 - **Circuit Breaker Engine (`CircuitBreaker`)**: Automatically trips to `OPEN` after repeated store failures, short-circuiting network traffic to protect failing infrastructure.
 - **Dual-Store Failover (`ResilientStore`)**: Transparently diverts traffic to a local `MemoryStore` during Redis outages, tagging responses with `RateLimit-Degraded: true`.
 - **Store Failure Policies (`onStoreError`)**: Choose between `next(err)` (default), `'fail-open'` (bypass quota), or `'fail-closed'` (HTTP 503).
@@ -140,6 +165,48 @@ LimitForge comes with zero-dependency native observability:
 
 ## Configuration Reference
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:8ce4fc1b13112faa4078e72aac9ec870a3b9991ba07ea529e576a3d6e07fa9ed -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:2122a8260ab4b1648fb8225c924687203ab11f055c97d339db65044a61e2d217 -->
+
+For `ResilientStore`, configure `timeoutMs` on the store itself; the middleware option applies to standalone stores. The timeout applies separately to primary and fallback operations. If both are slow, total wait can approach twice the timeout, plus scheduling delays. Timed-out operations are not canceled and may still change quota state.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+**Route quota scope:** By default, middleware registered with `app.use()` shares a quota across paths for each client and HTTP method. Middleware attached directly to a matched route uses that route's pattern, so parameter values in the route share a quota. Different HTTP methods remain separate. Set `includeRoute: false` to share a quota across route-level handlers too.
+
+Set `includeRoute: true` to use per-path quotas in global middleware, or supply `routeNormalizer` to group paths explicitly. Before Express matches a route, unrecognized dynamic values can produce separate quotas when `includeRoute` is enabled. A parameterized router mount can also put dynamic values in `req.baseUrl`; use a normalizer to group them. Ensure the custom normalizer returns a stable group and handles errors. Explicit `includeRoute: false` takes precedence over a custom normalizer for the quota key; the normalizer still affects telemetry labels.
+
+Automatic route-level detection works for limiters attached directly to Express routes. When wrapping a limiter in another handler, set `includeRoute` explicitly to choose the intended scope.
+
+This changes the default keys for global middleware. Existing per-path Redis counters are not migrated into the new shared quota. Plan for a quota reset and avoid mixing old and new versions when strict quotas are required; alternatively, use `includeRoute: true` to retain prior keying behavior.
+
+**Redis clock:** Sliding-window and token-bucket operations use the Redis server clock by default; the Redis user must have permission to run `TIME` in the scripts. Direct `RedisStore.consume()` calls may still supply `now` for deterministic testing; overriding it requires all callers to use a consistent clock. Redis server clock adjustments or failover to a server with a different clock can still affect quota timing. Avoid mixing old and new application versions while existing quotas are active, since older versions write application timestamps into the same keys.
+
+**Dynamic fixed windows:** MemoryStore and RedisStore use the latest observed duration for an active window. Redis fixed-window counters use a versioned string: legacy numeric counters migrate on access and may be retained longer because their original start is unknown. The Redis ACL must allow `GET`, `PTTL`, `TIME`, and `SET` in scripts. Stop old instances before migrating; old and new versions cannot share migrated keys. Expired counters cannot be recovered when a later request increases the duration.
+
+**Fractional Redis windows:** Redis uses whole milliseconds, so fractional fixed and sliding window durations and their key TTLs round up. Durations too large for safe millisecond arithmetic are rejected before changing the quota state. Existing fixed-window keys without an expiry still produce an error and need operator review. Previously orphaned sliding-window keys also need review if they are not accessed again.
+
+**Key encoding and upgrade:** Key components escape delimiters and percent signs, and hashed identifiers have distinct markers. Simple unambiguous raw keys remain unchanged, but routes, prefixes or identifiers containing escaped characters and hashed identifiers produce different keys. `RedisStore` prefixes containing delimiters are encoded too. Existing affected counters are not migrated: legacy keys can combine multiple identities, so their counts cannot be split safely. During deployment, stop or drain old instances and let affected old quotas expire, or use an external protection mechanism if strict quota continuity is required. Avoid mixing old and new versions against the same store.
+
+A custom `keyGenerator` must uniquely encode its own components (for example, use `JSON.stringify([tenantId, userId])` for string identifiers). Custom hash functions must also avoid mapping different clients to the same output. For direct `RedisStore.consume()` calls, raw and encoded forms of an already-prefixed key are treated as equivalent; use one form consistently and supply unique keys.
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:4c8a295c15ae41ba9141cd81c5bbaa6d84a6447984cd71ee0402580f8a8a0214 -->
+
+**Default store isolation:** Each call to `rateLimiter()` without a `store` creates an independent `MemoryStore`. Reusing the same middleware instance reuses its store. This replaces the previous implicit shared default: applications that relied on separate default limiters sharing a quota must now pass the same store explicitly. Limiters using an explicitly shared store and the same key still share a counter. To isolate different policies on the same shared Redis store, set distinct `prefix` values and use the same prefix for each policy across all application replicas.
+
+**Inferred token refill:** When a direct store call omits `refillRate` and supplies `limit` and `windowMs`, the rate is `limit * refillIntervalMs / windowMs` tokens per interval. Redis now follows this calculation for custom intervals, matching MemoryStore. An existing Redis bucket uses the corrected rate for time elapsed since its last update; expired buckets cannot be recovered. Avoid mixing versions for affected buckets.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 ```typescript
 const limiter = rateLimiter(options);
 ```
@@ -163,6 +230,24 @@ const limiter = rateLimiter(options);
 | `statusCode` | `number` | `429` | HTTP status code returned when rate limit is exceeded. |
 | `standardHeaders` | `boolean` | `true` | When true, attaches `RateLimit-*` response headers. |
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:b9ba94a1882865221ec7f789ae07fb2e4c35af9a18a52db28b3a559af0828b33 -->
+
+For fixed and sliding windows, omitted `limit` and `windowMs` default to 60 and 60000 ms. Token buckets still require a capacity or limit and either an explicit refill rate or both limit and window. `standardHeaders: false` suppresses `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`; `Retry-After` and `RateLimit-Degraded` remain available for blocked and degraded requests.
+
+The TypeScript signature of `MetricsCollector.recordStoreDuration` now matches the runtime: pass the duration in seconds, followed by optional labels. Calls using the previously declared object form must be updated.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:237385d5d3576d779d4b29760da667bfe6d05ecd3775954916e2f4dd3bd98451 -->
+
+`MetricsCollector.recordCircuitBreakerState` accepts a state string such as `"OPEN"` and optional labels, for example `recordCircuitBreakerState("OPEN", { breaker: "main" })`. The previous TypeScript object-form declaration did not match the runtime; callers using that form must update their code.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 ---
 
 ## Examples & Demos
@@ -183,7 +268,13 @@ Runnable examples located in the `examples/` directory:
 
 ## Testing & Benchmarks
 
-Run the automated test suite (268 unit and integration tests across 21 suites):
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:30064d66b61646e928a5d2c861ef056b2e80b09c6fe5a0a41a095a77fc1b30dd -->
+
+Run the automated test suite. To include tests against a real Redis instance, set `REDIS_URL` (for example, `redis://localhost:6379`); those tests are skipped when it is unset.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ```bash
 npm test

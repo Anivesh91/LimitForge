@@ -115,7 +115,8 @@ export function formatPrometheusMetrics(snapshot = {}) {
 }
 
 export function createPrometheusExporter(options = {}) {
-  const collector = options.collector || options.metricsCollector || defaultMetricsCollector;
+  const collector = options.collector || options.metricsCollector ||
+    (typeof options.getSnapshot === 'function' ? options : defaultMetricsCollector);
 
   return function prometheusExporterMiddleware(req, res, next) {
     try {

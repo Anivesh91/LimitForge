@@ -148,6 +148,43 @@ describe('SmartRate v7 — Day 3: OpenTelemetry Bridge, Alerting Rules & Grafana
   });
 
   describe('2. RateLimiter Middleware OpenTelemetry Integration', () => {
+    it('keeps quotas and store failure policies working when a custom bridge throws', async () => {
+      const bridge = {
+        startSpan() { throw new Error('tracing unavailable'); },
+        recordEvaluation() { throw new Error('tracing unavailable'); },
+        recordStoreError() { throw new Error('tracing unavailable'); }
+      };
+      const limiter = rateLimiter({ limit: 1, windowMs: 60000, openTelemetry: bridge });
+      const req = { method: 'GET', path: '/', ip: 'client' };
+      const res = { setHeader() {}, status() { return this; }, json() {} };
+      let nextCalls = 0;
+      await assert.doesNotReject(limiter(req, res, () => { nextCalls++; }));
+      assert.equal(nextCalls, 1);
+
+      const app = express();
+      app.get('/quota', rateLimiter({ limit: 1, windowMs: 60000, openTelemetry: bridge }), (req, res) => res.sendStatus(200));
+      app.get('/failure', rateLimiter({
+        limit: 1, windowMs: 60000, openTelemetry: bridge,
+        store: { consume() { throw new Error('store down'); } }, onStoreError: 'fail-closed'
+      }), (req, res) => res.sendStatus(200));
+      assert.equal((await request(app).get('/quota')).status, 200);
+      assert.equal((await request(app).get('/quota')).status, 429);
+      assert.equal((await request(app).get('/failure')).status, 503);
+    });
+
+    it('protects requests when custom span accessors throw', async () => {
+      const app = express();
+      const bridge = { recordEvaluation() {}, get startSpan() { throw new Error('unavailable'); } };
+      app.get('/start', rateLimiter({ limit: 1, windowMs: 60000, openTelemetry: bridge }), (req, res) => res.sendStatus(200));
+      const spanBridge = {
+        recordEvaluation() {},
+        startSpan() { return { get end() { throw new Error('unavailable'); } }; }
+      };
+      app.get('/end', rateLimiter({ limit: 1, windowMs: 60000, openTelemetry: spanBridge }), (req, res) => res.sendStatus(200));
+      assert.equal((await request(app).get('/start')).status, 200);
+      assert.equal((await request(app).get('/end')).status, 200);
+    });
+
     it('validates openTelemetry option types fail-fast', () => {
       assert.throws(
         () => rateLimiter({ limit: 5, windowMs: 1000, openTelemetry: 'bad-option' }),

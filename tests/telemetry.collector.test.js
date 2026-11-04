@@ -173,6 +173,31 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
         CIRCUIT_STATE_GAUGE_VALUES.OPEN
       );
       assert.equal(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].count, 1);
+      assert.equal(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].sum, 0.0012);
+      assert.equal(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].labels.store, 'redis');
+    });
+
+    it('records declared collector calls with the expected labels and values', () => {
+      const custom = new MetricsCollector({ maxSeries: 20, storeDurationBuckets: [0.1, 1] });
+      custom.recordRequest({ outcome: 'allowed', algorithm: 'sliding-window', method: 'GET', normalized_route: '/api', store: 'redis' });
+      custom.recordStoreError({ store: 'redis', error_type: 'timeout' });
+      custom.recordDegradedRequest({ reason: 'fallback' });
+      custom.recordCircuitBreakerState('OPEN', { breaker: 'main' });
+      custom.recordStoreDuration(0.2, { store: 'redis' });
+      custom.incrementCounter('custom_total', { route: '/api' }, 2);
+      custom.setGauge('custom_gauge', 3, { node: 'a' });
+      custom.observeHistogram('custom_duration', 0.2, { operation: 'get' }, [0.1, 1]);
+      const snapshot = custom.getSnapshot();
+      assert.equal(snapshot.counters[METRIC_NAMES.REQUESTS_TOTAL][0].labels.algorithm, 'sliding-window');
+      assert.equal(snapshot.counters[METRIC_NAMES.STORE_ERRORS_TOTAL][0].labels.error_type, 'timeout');
+      assert.equal(snapshot.counters[METRIC_NAMES.DEGRADED_REQUESTS_TOTAL][0].labels.reason, 'fallback');
+      const breaker = snapshot.gauges[METRIC_NAMES.CIRCUIT_BREAKER_STATE].find(record => record.labels.breaker === 'main');
+      assert.equal(breaker.value, CIRCUIT_STATE_GAUGE_VALUES.OPEN);
+      assert.equal(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].sum, 0.2);
+      assert.deepEqual(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].buckets.map(bucket => bucket.le), [0.1, 1]);
+      assert.equal(snapshot.counters.custom_total[0].value, 2);
+      assert.equal(snapshot.gauges.custom_gauge[0].value, 3);
+      assert.equal(snapshot.histograms.custom_duration[0].sum, 0.2);
     });
 
     it('resets all metric state and restores default circuit breaker gauge', () => {
@@ -564,6 +589,115 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
       const snapshot = collector.getSnapshot();
       const records = snapshot.counters[METRIC_NAMES.REQUESTS_TOTAL];
       assert.equal(records.length, 2);
+    });
+
+    it('retains all counter increments in a bounded overflow series', () => {
+      const collector = new MetricsCollector({ maxSeries: 3 });
+      const name = METRIC_NAMES.REQUESTS_TOTAL;
+      collector.recordRequest({ outcome: 'allowed', normalized_route: '/one', method: 'GET', store: 'memory' });
+      collector.recordRequest({ outcome: 'blocked', normalized_route: '/two', method: 'POST', store: 'redis' });
+      collector.recordRequest({ outcome: 'allowed', normalized_route: '/three', method: 'GET', store: 'redis' });
+      collector.recordRequest({ outcome: 'blocked', normalized_route: '/four', method: 'POST', store: 'memory' });
+      collector.recordRequest({ outcome: 'allowed', normalized_route: '/one', method: 'GET', store: 'memory' });
+
+      const records = collector.getSnapshot().counters[name];
+      assert.equal(records.length, 3);
+      assert.equal(records.reduce((total, record) => total + record.value, 0), 5);
+      assert.equal(records.find(record => record.labels.normalized_route === '/one').value, 2);
+      const overflow = records.find(record => record.labels.limitforge_overflow === 'true');
+      assert.deepEqual(overflow.labels, { normalized_route: '_overflow', limitforge_overflow: 'true' });
+      assert.equal(overflow.value, 2);
+    });
+
+    it('aggregates weighted and unlabelled counters when only one series is available', () => {
+      const collector = new MetricsCollector({ maxSeries: 1 });
+      collector.incrementCounter('custom_total', { status: 'ok' }, 2);
+      collector.incrementCounter('custom_total', { status: 'error' }, 3);
+      collector.incrementCounter('custom_total', {}, 4);
+      const records = collector.getSnapshot().counters.custom_total;
+      assert.equal(records.length, 1);
+      assert.equal(records[0].value, 9);
+      assert.equal(records[0].labels.limitforge_overflow, 'true');
+      collector.reset();
+      collector.incrementCounter('custom_total', { status: 'new' }, 7);
+      assert.equal(collector.getSnapshot().counters.custom_total[0].value, 7);
+    });
+
+    it('bounds and conserves counters under high label cardinality', () => {
+      for (const maxSeries of [1, 2, 3, 10]) {
+        const collector = new MetricsCollector({ maxSeries });
+        for (let i = 0; i < 1000; i++) {
+          collector.incrementCounter('traffic_total', { normalized_route: `/route-${i}`, outcome: i % 2 ? 'blocked' : 'allowed' });
+        }
+        const records = collector.getSnapshot().counters.traffic_total;
+        assert.ok(records.length <= maxSeries);
+        assert.equal(records.reduce((total, record) => total + record.value, 0), 1000);
+      }
+    });
+
+    it('conserves histogram observations and sums at the series cap', () => {
+      const collector = new MetricsCollector({ maxSeries: 2 });
+      collector.observeHistogram('latency', 0.05, { route: '/one' }, [0.1, 1]);
+      collector.observeHistogram('latency', 0.2, { route: '/two' }, [0.1, 1]);
+      collector.observeHistogram('latency', 1, { route: '/three' }, [0.05, 10]);
+      collector.observeHistogram('latency', 0.4, { route: '/one' }, [0.1, 1]);
+      const records = collector.getSnapshot().histograms.latency;
+      assert.equal(records.length, 2);
+      assert.equal(records.reduce((total, record) => total + record.count, 0), 4);
+      assert.ok(Math.abs(records.reduce((total, record) => total + record.sum, 0) - 1.65) < 1e-9);
+      const overflow = records.find(record => record.labels.limitforge_overflow === 'true');
+      assert.equal(overflow.count, 2);
+      assert.deepEqual(overflow.buckets, [{ le: 0.1, count: 0 }, { le: 1, count: 2 }]);
+    });
+
+    it('aggregates every histogram observation with maxSeries of one', () => {
+      const collector = new MetricsCollector({ maxSeries: 1 });
+      for (let i = 0; i < 100; i++) collector.observeHistogram('latency', i / 100, { route: `/r${i}` }, [0.5, 1]);
+      const records = collector.getSnapshot().histograms.latency;
+      assert.equal(records.length, 1);
+      assert.equal(records[0].count, 100);
+      assert.equal(records[0].buckets[1].count, 100);
+      assert.equal(records[0].labels.limitforge_overflow, 'true');
+    });
+
+    it('keeps exact global request outcomes for overflow even with a single series', () => {
+      const collector = new MetricsCollector({ maxSeries: 1 });
+      collector.recordRequest({ outcome: 'allowed', normalized_route: '/one' });
+      collector.recordRequest({ outcome: 'blocked', normalized_route: '/two' });
+      collector.recordRequest({ outcome: 'blocked', normalized_route: '/three' });
+      collector.recordRequest({ outcome: 'unknown', normalized_route: '/four' });
+      const counters = collector.getSnapshot().counters;
+      assert.equal(counters[METRIC_NAMES.REQUESTS_TOTAL][0].value, 4);
+      assert.equal(counters[METRIC_NAMES.OVERFLOW_REQUESTS_ALLOWED_TOTAL][0].value, 1);
+      assert.equal(counters[METRIC_NAMES.OVERFLOW_REQUESTS_BLOCKED_TOTAL][0].value, 2);
+      assert.equal(counters[METRIC_NAMES.OVERFLOW_REQUESTS_OTHER_TOTAL][0].value, 1);
+      for (const records of Object.values(counters)) assert.ok(records.length <= 1);
+    });
+
+    it('reports gauge updates that cannot fit without changing existing gauges', () => {
+      const collector = new MetricsCollector({ maxSeries: 2 });
+      collector.setGauge('temperature', 10, { sensor: 'one' });
+      collector.setGauge('temperature', 20, { sensor: 'two' });
+      collector.setGauge('temperature', 30, { sensor: 'three' });
+      collector.setGauge('temperature', 40, { sensor: 'three' });
+      collector.setGauge('temperature', 11, { sensor: 'one' });
+      const snapshot = collector.getSnapshot();
+      assert.deepEqual(snapshot.gauges.temperature.map(record => record.value), [11, 20]);
+      const dropped = snapshot.counters[METRIC_NAMES.METRIC_UPDATES_DROPPED_TOTAL];
+      assert.equal(dropped[0].value, 2);
+      assert.deepEqual(dropped[0].labels, { metric_type: 'gauge', metric_name: 'temperature' });
+    });
+
+    it('does not duplicate an explicitly supplied overflow label set', () => {
+      const collector = new MetricsCollector({ maxSeries: 2 });
+      const labels = { normalized_route: '_overflow', limitforge_overflow: 'true' };
+      collector.incrementCounter('custom_total', labels, 2);
+      collector.incrementCounter('custom_total', { normalized_route: '/other' }, 3);
+      collector.incrementCounter('custom_total', { normalized_route: '/third' }, 4);
+      const records = collector.getSnapshot().counters.custom_total;
+      assert.ok(records.length <= 2);
+      assert.equal(records.reduce((total, record) => total + record.value, 0), 9);
+      assert.equal(records.filter(record => record.labels.limitforge_overflow === 'true').length, 1);
     });
 
     it('records store error when ResilientStore primary store fails and falls back to memory', async () => {

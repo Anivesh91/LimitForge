@@ -9,11 +9,26 @@ import { normalizeRoute } from '../utils/routeNormalizer.js';
 import { MetricsCollector, defaultMetricsCollector } from '../telemetry/metricsCollector.js';
 import { OpenTelemetryBridge } from '../telemetry/openTelemetryBridge.js';
 
-const defaultMemoryStore = new MemoryStore();
+const defaultMemoryStores = new Set();
+const defaultStoreRegistry = new FinalizationRegistry((reference) => defaultMemoryStores.delete(reference));
 const attachedBreakerCollectors = new WeakMap();
 
 export function cleanupExpiredRecords() {
-  return defaultMemoryStore.cleanupExpiredRecords();
+  let removed = 0;
+  for (const reference of defaultMemoryStores) {
+    const store = reference.deref();
+    if (store) removed += store.cleanupExpiredRecords();
+    else defaultMemoryStores.delete(reference);
+  }
+  return removed;
+}
+
+function createDefaultMemoryStore() {
+  const store = new MemoryStore();
+  const reference = new WeakRef(store);
+  defaultMemoryStores.add(reference);
+  defaultStoreRegistry.register(store, reference);
+  return store;
 }
 
 const defaultKeyGenerator = (req) => req.ip || req.socket?.remoteAddress || '127.0.0.1';
@@ -44,12 +59,14 @@ function validateOptions(options) {
     metrics,
     metricsCollector,
     routeNormalizer,
+    includeRoute,
     openTelemetry,
     hashClientIdentifier,
     breakerId,
     prefix,
     skip,
     statusCode,
+    standardHeaders,
     message,
     failStrategy
   } = options;
@@ -64,6 +81,10 @@ function validateOptions(options) {
 
   if (statusCode !== undefined && (typeof statusCode !== 'number' || !Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599)) {
     throw new RangeError(`SmartRate: 'statusCode' must be a valid HTTP status code integer (received: ${statusCode}).`);
+  }
+
+  if (standardHeaders !== undefined && typeof standardHeaders !== 'boolean') {
+    throw new TypeError("SmartRate: 'standardHeaders' must be a boolean.");
   }
 
   if (breakerId !== undefined && (typeof breakerId !== 'string' || breakerId.trim().length === 0)) {
@@ -101,6 +122,10 @@ function validateOptions(options) {
 
   if (routeNormalizer !== undefined && typeof routeNormalizer !== 'function') {
     throw new TypeError("SmartRate: 'routeNormalizer' must be a function.");
+  }
+
+  if (includeRoute !== undefined && typeof includeRoute !== 'boolean') {
+    throw new TypeError("SmartRate: 'includeRoute' must be a boolean.");
   }
 
   if (fallbackStore !== undefined) {
@@ -220,11 +245,11 @@ function validateOptions(options) {
       }
     }
   } else {
-    if (typeof limit !== 'function' && (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0)) {
+    if (limit !== undefined && typeof limit !== 'function' && (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0)) {
       throw new RangeError(`SmartRate: 'limit' must be a positive integer (received: ${limit}).`);
     }
 
-    if (typeof windowMs !== 'function' && (typeof windowMs !== 'number' || !Number.isFinite(windowMs) || windowMs <= 0)) {
+    if (windowMs !== undefined && typeof windowMs !== 'function' && (typeof windowMs !== 'number' || !Number.isFinite(windowMs) || windowMs <= 0)) {
       throw new RangeError(`SmartRate: 'windowMs' must be a positive number in milliseconds (received: ${windowMs}).`);
     }
   }
@@ -238,12 +263,14 @@ function getRouteIdentifier(req, routeNormalizer) {
   return normalizeRoute(req, routeNormalizer);
 }
 
-function setRateLimitHeaders(res, { limit, remaining, reset, retryAfter }) {
+function setRateLimitHeaders(res, { limit, remaining, reset, retryAfter, standardHeaders }) {
   if (typeof res.setHeader !== 'function' || res.headersSent) return;
 
-  res.setHeader('RateLimit-Limit', String(limit));
-  res.setHeader('RateLimit-Remaining', String(Math.max(0, remaining)));
-  res.setHeader('RateLimit-Reset', String(Math.max(1, reset)));
+  if (standardHeaders) {
+    res.setHeader('RateLimit-Limit', String(limit));
+    res.setHeader('RateLimit-Remaining', String(Math.max(0, remaining)));
+    res.setHeader('RateLimit-Reset', String(Math.max(1, reset)));
+  }
 
   if (retryAfter !== undefined) {
     res.setHeader('Retry-After', String(Math.max(1, Math.ceil(retryAfter))));
@@ -254,13 +281,13 @@ export function rateLimiter(options = {}) {
   validateOptions(options);
 
   const {
-    limit,
-    windowMs,
+    limit: configuredLimit,
+    windowMs: configuredWindowMs,
     capacity,
     refillRate,
     refillIntervalMs = 1000,
     cost = 1,
-    timeoutMs,
+    timeoutMs = 250,
     onStoreError: rawOnStoreError,
     failStrategy,
     circuitBreaker,
@@ -271,18 +298,22 @@ export function rateLimiter(options = {}) {
     metrics,
     metricsCollector,
     routeNormalizer,
+    includeRoute,
     openTelemetry,
     hashClientIdentifier = false,
     breakerId,
     prefix,
     skip,
     statusCode,
+    standardHeaders = true,
     message
   } = options;
 
   const onStoreError = rawOnStoreError !== undefined ? rawOnStoreError : failStrategy;
   const algorithm = options.algorithm || 'fixed-window';
-  let store = options.store || defaultMemoryStore;
+  const limit = configuredLimit === undefined && algorithm !== 'token-bucket' ? 60 : configuredLimit;
+  const windowMs = configuredWindowMs === undefined && algorithm !== 'token-bucket' ? 60000 : configuredWindowMs;
+  let store = options.store || createDefaultMemoryStore();
   const keyGenerator = options.keyGenerator || defaultKeyGenerator;
   let collector = metricsCollector;
   if (!collector) {
@@ -372,6 +403,7 @@ export function rateLimiter(options = {}) {
   }
 
   const isResilient = store instanceof ResilientStore;
+  const visitedRoutes = new WeakMap();
   const safeTelemetry = (fn) => {
     try {
       fn();
@@ -393,16 +425,20 @@ export function rateLimiter(options = {}) {
     }
 
     let childSpan = null;
-    if (otelBridge && typeof otelBridge.startSpan === 'function') {
-      childSpan = otelBridge.startSpan('smartrate.consume', {
-        attributes: {
-          'smartrate.algorithm': algorithm,
-          'ratelimit.algorithm': algorithm
+    if (otelBridge) {
+      safeTelemetry(() => {
+        if (typeof otelBridge.startSpan === 'function') {
+          childSpan = otelBridge.startSpan('smartrate.consume', {
+            attributes: {
+              'smartrate.algorithm': algorithm,
+              'ratelimit.algorithm': algorithm
+            }
+          });
+          if (childSpan) {
+            req._smartRateSpan = childSpan;
+          }
         }
       });
-      if (childSpan) {
-        req._smartRateSpan = childSpan;
-      }
     }
 
     try {
@@ -413,7 +449,21 @@ export function rateLimiter(options = {}) {
 
       const method = (req.method || 'GET').toUpperCase();
       const normalizedRoute = normalizeRoute(req, routeNormalizer);
-      const routeKey = normalizedRoute;
+      // req.route can still refer to an earlier handler when app.use runs. Only
+      // treat it as route-level when this limiter belongs to that route's stack.
+      let isRouteHandler = Array.isArray(req.route?.stack) &&
+        req.route.stack.some((layer) => layer.handle === rateLimiterMiddleware);
+      if (isRouteHandler) {
+        let routes = visitedRoutes.get(req);
+        if (!routes) {
+          routes = new WeakSet();
+          visitedRoutes.set(req, routes);
+        }
+        if (routes.has(req.route)) isRouteHandler = false;
+        else routes.add(req.route);
+      }
+      const useRoute = includeRoute ?? (isRouteHandler || Boolean(routeNormalizer));
+      const routeKey = useRoute ? normalizedRoute : '__limitforge_global__';
       const defaultStoreLabel = isResilient
         ? 'resilient'
         : (store instanceof RedisStore ? 'redis' : (store instanceof MemoryStore ? 'memory' : 'custom'));
@@ -490,7 +540,7 @@ export function rateLimiter(options = {}) {
 
       try {
         const consumeOp = () => {
-          const storeOperation = store.consume({
+          const params = {
             key,
             limit: resolvedLimit,
             windowMs: resolvedWindowMs,
@@ -499,8 +549,11 @@ export function rateLimiter(options = {}) {
             refillRate: resolvedRefillRate,
             refillIntervalMs: resolvedRefillIntervalMs,
             cost: requestCost
-          });
-          return (timeoutMs === undefined || isResilient) ? storeOperation : withTimeout(storeOperation, timeoutMs);
+          };
+          const storeOperation = isResilient
+            ? store.consume(params, { failOnPrimaryError: onStoreError === 'fail-closed' })
+            : store.consume(params);
+          return isResilient ? storeOperation : withTimeout(storeOperation, timeoutMs);
         };
 
         result = (breaker && !isResilient) ? await breaker.execute(consumeOp) : await consumeOp();
@@ -683,7 +736,8 @@ export function rateLimiter(options = {}) {
         limit: headerLimit,
         remaining: result.remaining,
         reset: result.reset,
-        retryAfter: result.retryAfter
+        retryAfter: result.retryAfter,
+        standardHeaders
       });
 
       if (result.allowed) {
@@ -708,12 +762,12 @@ export function rateLimiter(options = {}) {
     } catch (err) {
       return next(err);
     } finally {
-      if (childSpan && typeof childSpan.end === 'function') {
-        try {
-          childSpan.end();
-        } catch {
-          // safe boundary
-        }
+      if (childSpan) {
+        safeTelemetry(() => {
+          if (typeof childSpan.end === 'function') {
+            childSpan.end();
+          }
+        });
       }
     }
   };

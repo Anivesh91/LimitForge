@@ -1,4 +1,5 @@
 import { describe, it } from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import express from 'express';
 import request from 'supertest';
@@ -355,7 +356,7 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
         route: '/test',
         clientIdentifier: otherHugeId
       });
-      const storedId = key.split(':').at(-1);
+      const storedId = key.split(':').at(-1).replace(/^~h~/, '');
       assert.equal(storedId.length, 64);
       assert.match(storedId, /^[0-9a-f]{64}$/);
       assert.notEqual(key, otherKey);
@@ -391,7 +392,7 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
       assert.equal(key.includes(secretApiKey), false);
 
       const keyParts = key.split(':');
-      const hashDigest = keyParts[keyParts.length - 1];
+      const hashDigest = keyParts[keyParts.length - 1].replace(/^~h~/, '');
       assert.equal(hashDigest.length, 64);
       assert.match(hashDigest, /^[0-9a-f]{64}$/);
     });
@@ -408,8 +409,105 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
         clientIdentifier: 'my-sensitive-token',
         hashClientIdentifier: customHasher
       });
-      assert.equal(key, 'limitforge:GET:/custom:custom_my-se');
+      assert.equal(key, 'limitforge:GET:/custom:~c~custom_my-se');
       assert.equal(receivedIdentifier, 'my-sensitive-token');
+    });
+
+    it('keeps route, identifier and encoded text boundaries distinct', () => {
+      const key = (route, clientIdentifier) => buildRateLimitKey({ route, clientIdentifier });
+      assert.notEqual(key('/x', 'foo:bar'), key('/x:foo', 'bar'));
+      assert.notEqual(key('/x:y', 'alice'), key('/x%3Ay', 'alice'));
+      assert.notEqual(key('/x', 'foo:bar'), key('/x', 'foo%3Abar'));
+      assert.notEqual(key('/x', '~h~abc'), key('/x', '%7Eh%7Eabc'));
+    });
+
+    it('keeps invalid UTF-16 strings distinct after UTF-8 encoding', () => {
+      const first = buildRateLimitKey({ clientIdentifier: '\ud800' });
+      const second = buildRateLimitKey({ clientIdentifier: '\ud801' });
+      const replacement = buildRateLimitKey({ clientIdentifier: '\ufffd' });
+      assert.notDeepEqual(Buffer.from(first), Buffer.from(second));
+      assert.notDeepEqual(Buffer.from(first), Buffer.from(replacement));
+      assert.ok(buildRateLimitKey({ clientIdentifier: 'user-🌐' }).includes('user-🌐'));
+      const longFirst = '\ud800'.repeat(257);
+      const longSecond = '\ud801'.repeat(257);
+      assert.notEqual(buildRateLimitKey({ clientIdentifier: longFirst }), buildRateLimitKey({ clientIdentifier: longSecond }));
+      assert.notEqual(
+        buildRateLimitKey({ clientIdentifier: '\ud800', hashClientIdentifier: true }),
+        buildRateLimitKey({ clientIdentifier: '\ud801', hashClientIdentifier: true })
+      );
+    });
+
+    it('enforces separate quotas for previously colliding routes and clients', async () => {
+      const store = new MemoryStore();
+      try {
+        const app = createTestApp();
+        const limiter = rateLimiter({ store, limit: 1, windowMs: 60000, keyGenerator: req => req.headers['x-client-id'] });
+        app.get('/x', limiter, (req, res) => res.sendStatus(200));
+        app.get('/x:part', limiter, (req, res) => res.sendStatus(200));
+        const first = () => request(app).get('/x').set('x-client-id', 'part:bar');
+        const second = () => request(app).get('/xfoo').set('x-client-id', 'bar');
+        assert.equal((await first()).status, 200);
+        assert.equal((await second()).status, 200);
+        assert.equal((await first()).status, 429);
+        assert.equal((await second()).status, 429);
+      } finally {
+        store.destroy();
+      }
+    });
+
+    it('escapes prefixes and algorithms so they cannot change field boundaries', () => {
+      const fixed = buildRateLimitKey({ prefix: 'service:sliding-window', route: '/x', clientIdentifier: 'a' });
+      const sliding = buildRateLimitKey({ prefix: 'service', algorithm: 'sliding-window', route: '/x', clientIdentifier: 'a' });
+      assert.notEqual(fixed, sliding);
+      assert.notEqual(
+        buildRateLimitKey({ prefix: 'tenant:a', clientIdentifier: 'a' }),
+        buildRateLimitKey({ prefix: 'tenant%3Aa', clientIdentifier: 'a' })
+      );
+      assert.notEqual(
+        buildRateLimitKey({ algorithm: 'x:y', clientIdentifier: 'a' }),
+        buildRateLimitKey({ algorithm: 'x%3Ay', clientIdentifier: 'a' })
+      );
+    });
+
+    it('produces distinct keys across combinations of prefixes, methods, routes and identifiers', () => {
+      const keys = new Set();
+      for (const prefix of ['p', 'p:x', 'p%3Ax']) {
+        for (const algorithm of ['fixed-window', 'sliding-window']) {
+          for (const method of ['GET', 'POST']) {
+            for (const route of ['/x', '/x:a', '/x%3Aa', '/\ud800', '/\ufffd']) {
+              for (const clientIdentifier of ['a', 'a:b', 'a%3Ab', '~h~x', '\ud801', '\ufffd']) {
+                const key = buildRateLimitKey({ prefix, algorithm, method, route, clientIdentifier });
+                assert.equal(keys.has(key), false);
+                keys.add(key);
+              }
+            }
+          }
+        }
+      }
+      assert.equal(keys.size, 360);
+    });
+
+    it('separates raw identities from automatically hashed or custom-hashed identities', () => {
+      const longId = 'x'.repeat(257);
+      const digest = createHash('sha256').update(longId).digest('hex');
+      assert.notEqual(buildRateLimitKey({ clientIdentifier: longId }), buildRateLimitKey({ clientIdentifier: digest }));
+      assert.notEqual(
+        buildRateLimitKey({ clientIdentifier: longId, hashClientIdentifier: true }),
+        buildRateLimitKey({ clientIdentifier: digest })
+      );
+      assert.notEqual(
+        buildRateLimitKey({ clientIdentifier: 'original', hashClientIdentifier: () => 'other' }),
+        buildRateLimitKey({ clientIdentifier: 'other' })
+      );
+    });
+
+    it('keeps escaped identifiers within the configured length bound', () => {
+      for (const clientIdentifier of [':'.repeat(256), '%'.repeat(256), '~'.repeat(256)]) {
+        const key = buildRateLimitKey({ route: '/x', clientIdentifier });
+        assert.ok(key.split(':').at(-1).length <= MAX_IDENTIFIER_LENGTH);
+      }
+      const custom = buildRateLimitKey({ clientIdentifier: 'user', hashClientIdentifier: () => ':'.repeat(256) });
+      assert.ok(custom.split(':').at(-1).length <= MAX_IDENTIFIER_LENGTH);
     });
 
     it('validates hashClientIdentifier option in rateLimiter fail-fast', () => {

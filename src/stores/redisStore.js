@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { escapeKeySegment } from '../utils/keyBuilder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,10 +44,14 @@ export class RedisStore {
     if (!this.prefix) {
       return key;
     }
-    if (key.startsWith(`${this.prefix}:`)) {
+    const encodedPrefix = escapeKeySegment(this.prefix);
+    if (key.startsWith(`${encodedPrefix}:`)) {
       return key;
     }
-    return `${this.prefix}:${key}`;
+    if (key.startsWith(`${this.prefix}:`)) {
+      return `${encodedPrefix}${key.slice(this.prefix.length)}`;
+    }
+    return `${encodedPrefix}:${key}`;
   }
 
   async _evalFixedScript(key, windowMs) {
@@ -60,11 +65,11 @@ export class RedisStore {
     return this.client.sendCommand(['EVAL', this.fixedScript, '1', key, String(windowMs)]);
   }
 
-  async _evalSlidingScript(key, now, windowMs, limit, member) {
+  async _evalSlidingScript(key, now, windowMs, limit, member, useServerTime) {
     if (typeof this.client.eval === 'function') {
       return this.client.eval(this.slidingScript, {
         keys: [key],
-        arguments: [String(now), String(windowMs), String(limit), member]
+        arguments: [String(now), String(windowMs), String(limit), member, useServerTime ? '1' : '0']
       });
     }
 
@@ -76,15 +81,16 @@ export class RedisStore {
       String(now),
       String(windowMs),
       String(limit),
-      member
+      member,
+      useServerTime ? '1' : '0'
     ]);
   }
 
-  async _evalTokenBucketScript(key, now, capacity, refillRate, refillIntervalMs = 1000, cost = 1) {
+  async _evalTokenBucketScript(key, now, capacity, refillRate, refillIntervalMs = 1000, cost = 1, useServerTime) {
     if (typeof this.client.eval === 'function') {
       return this.client.eval(this.tokenBucketScript, {
         keys: [key],
-        arguments: [String(now), String(capacity), String(refillRate), String(refillIntervalMs), String(cost)]
+        arguments: [String(now), String(capacity), String(refillRate), String(refillIntervalMs), String(cost), useServerTime ? '1' : '0']
       });
     }
 
@@ -97,7 +103,8 @@ export class RedisStore {
       String(capacity),
       String(refillRate),
       String(refillIntervalMs),
-      String(cost)
+      String(cost),
+      useServerTime ? '1' : '0'
     ]);
   }
 
@@ -110,11 +117,14 @@ export class RedisStore {
     refillRate,
     refillIntervalMs = 1000,
     cost = 1,
-    now = Date.now()
+    now
   }) {
     if (typeof key !== 'string' || key.trim().length === 0) {
       throw new TypeError("SmartRate: RedisStore 'key' must be a non-empty string.");
     }
+
+    const useServerTime = now === undefined;
+    const requestedNow = useServerTime ? Date.now() : now;
 
     if (algorithm === 'token-bucket') {
       const resolvedCapacity = capacity ?? limit;
@@ -122,13 +132,13 @@ export class RedisStore {
         throw new RangeError(`SmartRate: RedisStore 'capacity' must be a positive integer (received: ${resolvedCapacity}).`);
       }
 
-      const resolvedRefillRate = refillRate ?? (limit && windowMs ? limit / (windowMs / 1000) : undefined);
-      if (typeof resolvedRefillRate !== 'number' || !Number.isFinite(resolvedRefillRate) || resolvedRefillRate <= 0) {
-        throw new RangeError(`SmartRate: RedisStore 'refillRate' must be a positive number (received: ${resolvedRefillRate}).`);
-      }
-
       if (typeof refillIntervalMs !== 'number' || !Number.isFinite(refillIntervalMs) || refillIntervalMs <= 0) {
         throw new RangeError(`SmartRate: RedisStore 'refillIntervalMs' must be a positive number (received: ${refillIntervalMs}).`);
+      }
+
+      const resolvedRefillRate = refillRate ?? (limit && windowMs ? (limit * refillIntervalMs) / windowMs : undefined);
+      if (typeof resolvedRefillRate !== 'number' || !Number.isFinite(resolvedRefillRate) || resolvedRefillRate <= 0) {
+        throw new RangeError(`SmartRate: RedisStore 'refillRate' must be a positive number (received: ${resolvedRefillRate}).`);
       }
 
       return this._consumeTokenBucket({
@@ -137,7 +147,8 @@ export class RedisStore {
         refillRate: resolvedRefillRate,
         refillIntervalMs,
         cost,
-        now
+        now: requestedNow,
+        useServerTime
       });
     }
 
@@ -150,15 +161,15 @@ export class RedisStore {
     }
 
     if (algorithm === 'sliding-window') {
-      return this._consumeSlidingWindow({ key, limit, windowMs, now });
+      return this._consumeSlidingWindow({ key, limit, windowMs, now: requestedNow, useServerTime });
     }
 
     return this._consumeFixedWindow({ key, limit, windowMs });
   }
 
-  async _consumeTokenBucket({ key, capacity, refillRate, refillIntervalMs = 1000, cost = 1, now }) {
+  async _consumeTokenBucket({ key, capacity, refillRate, refillIntervalMs = 1000, cost = 1, now, useServerTime }) {
     const storeKey = this._resolveKey(key);
-    const rawResult = await this._evalTokenBucketScript(storeKey, now, capacity, refillRate, refillIntervalMs, cost);
+    const rawResult = await this._evalTokenBucketScript(storeKey, now, capacity, refillRate, refillIntervalMs, cost, useServerTime);
     const [rawAllowed, rawRemaining, rawReset, rawRetryAfter] = Array.isArray(rawResult)
       ? rawResult
       : [1, capacity - cost, 1, 0];
@@ -202,20 +213,20 @@ export class RedisStore {
     };
   }
 
-  async _consumeSlidingWindow({ key, limit, windowMs, now }) {
+  async _consumeSlidingWindow({ key, limit, windowMs, now, useServerTime }) {
     const storeKey = this._resolveKey(key);
     const uniqueId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2, 10);
     const member = `${now}:${uniqueId}`;
 
-    const rawResult = await this._evalSlidingScript(storeKey, now, windowMs, limit, member);
-    const [rawAllowed, rawCount, rawOldestScore] = Array.isArray(rawResult) ? rawResult : [1, 1, now];
+    const rawResult = await this._evalSlidingScript(storeKey, now, windowMs, limit, member, useServerTime);
+    const [rawAllowed, rawCount, rawOldestScore, rawServerNow = now] = Array.isArray(rawResult) ? rawResult : [1, 1, now, now];
 
     const allowed = Number(rawAllowed) === 1;
     const count = Number(rawCount);
     const oldestScore = Number(rawOldestScore);
     const remaining = Math.max(0, limit - count);
 
-    const resetMs = (oldestScore + windowMs) - now;
+    const resetMs = (oldestScore + Math.ceil(windowMs)) - Number(rawServerNow);
     const resetSeconds = Math.max(1, Math.ceil(resetMs / 1000));
 
     return {

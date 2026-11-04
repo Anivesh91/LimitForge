@@ -84,7 +84,7 @@ export class ResilientStore extends EventEmitter {
     return this.circuitBreaker;
   }
 
-  async consume(params) {
+  async consume(params, { failOnPrimaryError = false } = {}) {
     const runPrimary = () =>
       this.timeoutMs
         ? withTimeout(this.primaryStore.consume(params), this.timeoutMs)
@@ -107,13 +107,17 @@ export class ResilientStore extends EventEmitter {
       primaryError = err;
     }
 
+    if (failOnPrimaryError) {
+      throw primaryError;
+    }
+
     this.emit('fallback', {
       key: params.key,
       error: primaryError,
       circuitState: this.circuitBreaker ? this.circuitBreaker.getState() : 'NONE'
     });
 
-    const fallbackResult = await this.fallbackStore.consume(params);
+    const fallbackResult = await withTimeout(this.fallbackStore.consume(params), this.timeoutMs);
     return {
       ...fallbackResult,
       degraded: true,

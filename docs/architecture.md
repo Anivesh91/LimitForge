@@ -56,8 +56,17 @@ interface RateLimitStore {
 To prevent distributed race conditions (TOCTOU: Time-of-Check to Time-of-Use), `RedisStore` evaluates rate limiting logic entirely inside Redis using atomic Lua scripts:
 
 ### A. Fixed Window (`src/scripts/fixedWindow.lua`)
-- Atomically executes `INCR` and conditionally sets expiration via `PEXPIRE` on first touch.
-- Reads `PTTL` to calculate accurate remaining window duration.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:29f6954756b9b2bf792edae317277766cfdd2329328146a1185484aeffeae8b4 -->
+
+- Stores the counter and its window start together in a versioned Redis string. Each update uses one atomic Lua script and `SET ... PX`, with the Redis server clock.
+- When an active window changes duration, expiration is recalculated from its original start. A policy change cannot recover a window that has already expired.
+- Legacy numeric counters are migrated on access without losing their count. Their original start time is unavailable, so migration conservatively retains the counter for at least its remaining TTL and one current window. This can extend that window.
+- Old versions use `INCR` on these keys and cannot read the new format. Stop old instances before migrating keys; a rollback requires waiting for migrated keys to expire or accepting quota resets. Redis ACLs must allow `GET`, `PTTL`, `TIME`, and `SET` from the script.
+- Fixed and sliding windows accept fractional milliseconds; Redis rounds the window duration and expiry up to whole milliseconds. Existing fixed-window keys without an expiry still raise an error and need operator review. Previously orphaned sliding-window keys also need review if they are not accessed again.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ### B. Sliding Window (`src/scripts/slidingWindow.lua`)
 - Uses a Redis **Sorted Set (ZSET)** where scores represent microsecond/millisecond timestamps.

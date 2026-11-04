@@ -1,6 +1,11 @@
 
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
+if ARGV[6] == '1' then
+    if redis.replicate_commands then redis.replicate_commands() end
+    local clock = redis.call("TIME")
+    now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
+end
 local capacity = tonumber(ARGV[2])
 local refillRate = tonumber(ARGV[3])
 local refillIntervalMs = tonumber(ARGV[4]) or 1000
@@ -26,7 +31,7 @@ if rawTokens and rawLastRefill then
     local elapsedMs = math.max(0, now - prevLastRefill)
     local tokensToAdd = elapsedMs * refillPerMs
     currentTokens = math.min(capacity, prevTokens + tokensToAdd)
-    lastRefill = now
+    lastRefill = math.max(now, prevLastRefill)
 end
 
 local allowed = 0
@@ -37,7 +42,6 @@ if currentTokens >= cost then
     currentTokens = currentTokens - cost
     allowed = 1
     remaining = math.floor(currentTokens)
-    lastRefill = now
 else
     allowed = 0
     remaining = math.floor(currentTokens)

@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { RedisStore } from '../src/stores/redisStore.js';
+import { buildRateLimitKey } from '../src/utils/keyBuilder.js';
 
 describe('SmartRate — RedisStore Unit Tests', () => {
 
@@ -43,7 +44,7 @@ describe('SmartRate — RedisStore Unit Tests', () => {
 
     const store = new RedisStore({ client: mockClient });
     assert.equal(store.client, mockClient);
-    assert.ok(typeof store.script === 'string' && store.script.includes('INCR'));
+    assert.ok(typeof store.script === 'string' && store.script.length > 0);
   });
 
   describe('Configurable Key Prefix Support', () => {
@@ -97,6 +98,23 @@ describe('SmartRate — RedisStore Unit Tests', () => {
       await store.consume({ key: 'my-service:user:42', limit: 5, windowMs: 60_000 });
 
       assert.equal(evalParams.options.keys[0], 'my-service:user:42');
+    });
+
+    it('encodes special prefix characters without adding the prefix twice', async () => {
+      const keys = [];
+      const store = new RedisStore({ prefix: 'tenant:alpha%', client: { eval: async (_script, options) => {
+        keys.push(options.keys[0]);
+        return [1, 60000];
+      } } });
+      const built = buildRateLimitKey({ prefix: store.prefix, route: '/x', clientIdentifier: 'user:1' });
+      await store.consume({ key: built, limit: 2, windowMs: 60000 });
+      await store.consume({ key: 'tenant:alpha%:user:1', limit: 2, windowMs: 60000 });
+      await store.consume({ key: 'user:1', limit: 2, windowMs: 60000 });
+      await store.consume({ key: 'tenant%3Aalpha%25:user:1', limit: 2, windowMs: 60000 });
+      assert.equal(keys[0], built);
+      assert.equal(keys[1], 'tenant%3Aalpha%25:user:1');
+      assert.equal(keys[2], keys[1]);
+      assert.equal(keys[3], keys[1]);
     });
   });
 

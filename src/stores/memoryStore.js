@@ -1,3 +1,13 @@
+function createCleanupTimer(storeRef, intervalMs) {
+  const timer = setInterval(() => {
+    const store = storeRef.deref();
+    if (store) store.cleanupExpiredRecords();
+    else clearInterval(timer);
+  }, intervalMs);
+  if (typeof timer.unref === 'function') timer.unref();
+  return timer;
+}
+
 export class MemoryStore {
   constructor(options = {}) {
     this.store = new Map();
@@ -50,12 +60,12 @@ export class MemoryStore {
       };
     }
 
+    // Cleanup must use the most recently observed policy for this window.
+    record.windowMs = windowMs;
     const elapsed = now - record.windowStart;
     if (elapsed >= windowMs) {
       record.count = 1;
       record.windowStart = now;
-      record.windowMs = windowMs;
-
       return {
         allowed: true,
         count: 1,
@@ -216,13 +226,7 @@ export class MemoryStore {
 
   _ensureCleanupTimer() {
     if (!this.cleanupInterval) {
-      this.cleanupInterval = setInterval(() => {
-        this.cleanupExpiredRecords();
-      }, this.cleanupIntervalMs);
-
-      if (typeof this.cleanupInterval.unref === 'function') {
-        this.cleanupInterval.unref();
-      }
+      this.cleanupInterval = createCleanupTimer(new WeakRef(this), this.cleanupIntervalMs);
     }
   }
 
