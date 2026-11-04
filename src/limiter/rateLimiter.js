@@ -415,16 +415,20 @@ export function rateLimiter(options = {}) {
     }
 
     let childSpan = null;
-    if (otelBridge && typeof otelBridge.startSpan === 'function') {
-      childSpan = otelBridge.startSpan('smartrate.consume', {
-        attributes: {
-          'smartrate.algorithm': algorithm,
-          'ratelimit.algorithm': algorithm
+    if (otelBridge) {
+      safeTelemetry(() => {
+        if (typeof otelBridge.startSpan === 'function') {
+          childSpan = otelBridge.startSpan('smartrate.consume', {
+            attributes: {
+              'smartrate.algorithm': algorithm,
+              'ratelimit.algorithm': algorithm
+            }
+          });
+          if (childSpan) {
+            req._smartRateSpan = childSpan;
+          }
         }
       });
-      if (childSpan) {
-        req._smartRateSpan = childSpan;
-      }
     }
 
     try {
@@ -747,12 +751,12 @@ export function rateLimiter(options = {}) {
     } catch (err) {
       return next(err);
     } finally {
-      if (childSpan && typeof childSpan.end === 'function') {
-        try {
-          childSpan.end();
-        } catch {
-          // safe boundary
-        }
+      if (childSpan) {
+        safeTelemetry(() => {
+          if (typeof childSpan.end === 'function') {
+            childSpan.end();
+          }
+        });
       }
     }
   };
