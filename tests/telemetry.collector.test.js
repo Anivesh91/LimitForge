@@ -173,6 +173,8 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
         CIRCUIT_STATE_GAUGE_VALUES.OPEN
       );
       assert.equal(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].count, 1);
+      assert.equal(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].sum, 0.0012);
+      assert.equal(snapshot.histograms[METRIC_NAMES.STORE_DURATION_SECONDS][0].labels.store, 'redis');
     });
 
     it('resets all metric state and restores default circuit breaker gauge', () => {

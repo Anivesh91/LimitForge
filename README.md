@@ -214,6 +214,16 @@ const limiter = rateLimiter(options);
 | `statusCode` | `number` | `429` | HTTP status code returned when rate limit is exceeded. |
 | `standardHeaders` | `boolean` | `true` | When true, attaches `RateLimit-*` response headers. |
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:b9ba94a1882865221ec7f789ae07fb2e4c35af9a18a52db28b3a559af0828b33 -->
+
+For fixed and sliding windows, omitted `limit` and `windowMs` default to 60 and 60000 ms. Token buckets still require a capacity or limit and either an explicit refill rate or both limit and window. `standardHeaders: false` suppresses `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`; `Retry-After` and `RateLimit-Degraded` remain available for blocked and degraded requests.
+
+The TypeScript signature of `MetricsCollector.recordStoreDuration` now matches the runtime: pass the duration in seconds, followed by optional labels. Calls using the previously declared object form must be updated.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 ---
 
 ## Examples & Demos

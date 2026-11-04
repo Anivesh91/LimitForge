@@ -36,6 +36,10 @@ const memStore = new MemoryStore({ cleanupIntervalMs: 30000 });
 const cb = new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 5000, breakerId: 'cb-1' });
 
 const collector = new MetricsCollector();
+collector.recordStoreDuration(0.125, { store: 'redis' });
+collector.recordStoreDuration(0.125);
+// @ts-expect-error duration must be a number in seconds
+collector.recordStoreDuration({ store: 'redis', operation: 'get', outcome: 'success', duration_ms: 125 });
 const otel = new OpenTelemetryBridge();
 
 const fullLimiter = rateLimiter({
@@ -60,6 +64,7 @@ const fullLimiter = rateLimiter({
   metricsCollector: collector,
   routeNormalizer: (req: Request) => '/normalized',
   includeRoute: true,
+  standardHeaders: false,
   openTelemetry: otel,
   statusCode: 429,
   message: { error: 'Quota exceeded' },

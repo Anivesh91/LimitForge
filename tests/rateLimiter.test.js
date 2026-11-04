@@ -16,6 +16,69 @@ function createTestApp() {
 describe('SmartRate v1 — Test Suite', () => {
 
   describe('Option Validation (Fail-Fast)', () => {
+    it('uses the documented defaults and preserves explicitly supplied options', async () => {
+      for (const [options, expectedLimit, expectedWindow] of [
+        [{}, 60, 60000],
+        [{ limit: 3 }, 3, 60000],
+        [{ windowMs: 5000 }, 60, 5000],
+        [{ algorithm: 'sliding-window' }, 60, 60000]
+      ]) {
+        let received;
+        const store = { consume: async params => {
+          received = params;
+          return { allowed: true, remaining: expectedLimit - 1, reset: 1 };
+        } };
+        const app = createTestApp();
+        app.get('/', rateLimiter({ ...options, store }), (req, res) => res.sendStatus(200));
+        assert.equal((await request(app).get('/')).status, 200);
+        assert.equal(received.limit, expectedLimit);
+        assert.equal(received.windowMs, expectedWindow);
+      }
+      assert.doesNotThrow(() => rateLimiter());
+      assert.throws(() => rateLimiter({ limit: null }), /limit/);
+      assert.throws(() => rateLimiter({ windowMs: null }), /windowMs/);
+      assert.throws(() => rateLimiter({ algorithm: 'token-bucket' }), /capacity/);
+    });
+
+    it('respects standardHeaders while retaining Retry-After and degraded signals', async () => {
+      assert.throws(() => rateLimiter({ standardHeaders: 'false' }), /standardHeaders/);
+      const app = createTestApp();
+      app.get('/quota', rateLimiter({ limit: 1, standardHeaders: false }), (req, res) => res.sendStatus(200));
+      app.get('/failed', rateLimiter({ standardHeaders: false, store: { consume() { throw new Error('down'); } }, onStoreError: 'fail-closed' }), (req, res) => res.sendStatus(200));
+      app.get('/fallback', rateLimiter({ limit: 1, standardHeaders: false, store: { consume() { throw new Error('down'); } }, fallbackStore: true }), (req, res) => res.sendStatus(200));
+      const allowed = await request(app).get('/quota');
+      const blocked = await request(app).get('/quota');
+      const failed = await request(app).get('/failed');
+      const degraded = await request(app).get('/fallback');
+      const degradedBlocked = await request(app).get('/fallback');
+      assert.equal(allowed.status, 200);
+      assert.equal(blocked.status, 429);
+      assert.equal(failed.status, 503);
+      assert.equal(degraded.status, 200);
+      assert.equal(degradedBlocked.status, 429);
+      for (const res of [allowed, blocked, failed, degraded, degradedBlocked]) {
+        assert.equal(res.headers['ratelimit-limit'], undefined);
+        assert.equal(res.headers['ratelimit-remaining'], undefined);
+        assert.equal(res.headers['ratelimit-reset'], undefined);
+      }
+      assert.ok(Number(blocked.headers['retry-after']) > 0);
+      assert.equal(failed.headers['ratelimit-degraded'], 'true');
+      assert.ok(Number(failed.headers['retry-after']) > 0);
+      assert.equal(degraded.headers['ratelimit-degraded'], 'true');
+      assert.equal(degradedBlocked.headers['ratelimit-degraded'], 'true');
+      assert.ok(Number(degradedBlocked.headers['retry-after']) > 0);
+    });
+
+    it('enforces the default limit after sixty requests', async () => {
+      const app = createTestApp();
+      app.get('/', rateLimiter(), (req, res) => res.sendStatus(200));
+      for (let i = 0; i < 60; i++) {
+        const res = await request(app).get('/');
+        assert.equal(res.status, 200);
+        assert.equal(res.headers['ratelimit-limit'], '60');
+      }
+      assert.equal((await request(app).get('/')).status, 429);
+    });
     it('throws RangeError when limit is 0, negative, or not an integer', () => {
       assert.throws(() => rateLimiter({ limit: 0, windowMs: 60000 }), { name: 'RangeError' });
       assert.throws(() => rateLimiter({ limit: -5, windowMs: 60000 }), { name: 'RangeError' });

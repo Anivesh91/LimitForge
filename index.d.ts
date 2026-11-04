@@ -95,6 +95,7 @@ export interface RateLimiterOptions {
   includeRoute?: boolean;
   openTelemetry?: boolean | OpenTelemetryBridge | { tracer?: any; getSpan?: (req: Request) => any; recordEvaluation?: Function; recordStoreError?: Function };
   statusCode?: number;
+  standardHeaders?: boolean;
   message?: string | object | ((req: Request, res: Response) => any | Promise<any>);
   skip?: (req: Request) => boolean | Promise<boolean>;
 }
@@ -159,12 +160,7 @@ export declare class MetricsCollector {
     store?: string;
     degraded?: boolean;
   }): void;
-  recordStoreDuration(params: {
-    store: string;
-    operation: string;
-    outcome: 'success' | 'failure' | 'timeout';
-    duration_ms: number;
-  }): void;
+  recordStoreDuration(durationSeconds: number, labels?: Record<string, unknown>): void;
   recordCircuitBreakerState(params: {
     state: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
     breaker?: string;

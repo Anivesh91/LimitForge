@@ -66,6 +66,7 @@ function validateOptions(options) {
     prefix,
     skip,
     statusCode,
+    standardHeaders,
     message,
     failStrategy
   } = options;
@@ -80,6 +81,10 @@ function validateOptions(options) {
 
   if (statusCode !== undefined && (typeof statusCode !== 'number' || !Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599)) {
     throw new RangeError(`SmartRate: 'statusCode' must be a valid HTTP status code integer (received: ${statusCode}).`);
+  }
+
+  if (standardHeaders !== undefined && typeof standardHeaders !== 'boolean') {
+    throw new TypeError("SmartRate: 'standardHeaders' must be a boolean.");
   }
 
   if (breakerId !== undefined && (typeof breakerId !== 'string' || breakerId.trim().length === 0)) {
@@ -240,11 +245,11 @@ function validateOptions(options) {
       }
     }
   } else {
-    if (typeof limit !== 'function' && (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0)) {
+    if (limit !== undefined && typeof limit !== 'function' && (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0)) {
       throw new RangeError(`SmartRate: 'limit' must be a positive integer (received: ${limit}).`);
     }
 
-    if (typeof windowMs !== 'function' && (typeof windowMs !== 'number' || !Number.isFinite(windowMs) || windowMs <= 0)) {
+    if (windowMs !== undefined && typeof windowMs !== 'function' && (typeof windowMs !== 'number' || !Number.isFinite(windowMs) || windowMs <= 0)) {
       throw new RangeError(`SmartRate: 'windowMs' must be a positive number in milliseconds (received: ${windowMs}).`);
     }
   }
@@ -258,12 +263,14 @@ function getRouteIdentifier(req, routeNormalizer) {
   return normalizeRoute(req, routeNormalizer);
 }
 
-function setRateLimitHeaders(res, { limit, remaining, reset, retryAfter }) {
+function setRateLimitHeaders(res, { limit, remaining, reset, retryAfter, standardHeaders }) {
   if (typeof res.setHeader !== 'function' || res.headersSent) return;
 
-  res.setHeader('RateLimit-Limit', String(limit));
-  res.setHeader('RateLimit-Remaining', String(Math.max(0, remaining)));
-  res.setHeader('RateLimit-Reset', String(Math.max(1, reset)));
+  if (standardHeaders) {
+    res.setHeader('RateLimit-Limit', String(limit));
+    res.setHeader('RateLimit-Remaining', String(Math.max(0, remaining)));
+    res.setHeader('RateLimit-Reset', String(Math.max(1, reset)));
+  }
 
   if (retryAfter !== undefined) {
     res.setHeader('Retry-After', String(Math.max(1, Math.ceil(retryAfter))));
@@ -274,8 +281,8 @@ export function rateLimiter(options = {}) {
   validateOptions(options);
 
   const {
-    limit,
-    windowMs,
+    limit: configuredLimit,
+    windowMs: configuredWindowMs,
     capacity,
     refillRate,
     refillIntervalMs = 1000,
@@ -298,11 +305,14 @@ export function rateLimiter(options = {}) {
     prefix,
     skip,
     statusCode,
+    standardHeaders = true,
     message
   } = options;
 
   const onStoreError = rawOnStoreError !== undefined ? rawOnStoreError : failStrategy;
   const algorithm = options.algorithm || 'fixed-window';
+  const limit = configuredLimit === undefined && algorithm !== 'token-bucket' ? 60 : configuredLimit;
+  const windowMs = configuredWindowMs === undefined && algorithm !== 'token-bucket' ? 60000 : configuredWindowMs;
   let store = options.store || createDefaultMemoryStore();
   const keyGenerator = options.keyGenerator || defaultKeyGenerator;
   let collector = metricsCollector;
@@ -726,7 +736,8 @@ export function rateLimiter(options = {}) {
         limit: headerLimit,
         remaining: result.remaining,
         reset: result.reset,
-        retryAfter: result.retryAfter
+        retryAfter: result.retryAfter,
+        standardHeaders
       });
 
       if (result.allowed) {

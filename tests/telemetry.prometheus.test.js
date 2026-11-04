@@ -217,36 +217,42 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
     });
 
     it('documented observability setup records request metrics', async () => {
-      defaultMetricsCollector.reset();
-      const doc = await readFile(new URL('../docs/observability.md', import.meta.url), 'utf8');
-      const code = doc.match(/```javascript\n([\s\S]*?)\n```/)?.[1];
-      assert.ok(code);
-      assert.ok(code.includes('app.listen(3000);'));
-      const runnable = code.replace(/^import[\s\S]*?from '[^']+';\n/gm, '').replace('app.listen(3000);', 'return app;');
-      const example = new Function('express', 'rateLimiter', 'createPrometheusExporter', runnable)(express, rateLimiter, createPrometheusExporter);
-      const scrape = await request(example).get('/metrics');
-      assert.equal(scrape.status, 200);
-      assert.match(scrape.text, /smartrate_requests_total\{[^\n]*outcome="allowed"/);
+      const rawDoc = await readFile(new URL('../docs/observability.md', import.meta.url), 'utf8');
+      for (const newline of ['\n', '\r\n']) {
+        defaultMetricsCollector.reset();
+        const doc = rawDoc.replace(/\r?\n/g, newline);
+        const code = doc.match(/```javascript\r?\n([\s\S]*?)\r?\n```/)?.[1];
+        assert.ok(code);
+        assert.ok(code.includes('app.listen(3000);'));
+        const runnable = code.replace(/^import[\s\S]*?from '[^']+';\r?\n/gm, '').replace('app.listen(3000);', 'return app;');
+        const example = new Function('express', 'rateLimiter', 'createPrometheusExporter', runnable)(express, rateLimiter, createPrometheusExporter);
+        const scrape = await request(example).get('/metrics');
+        assert.equal(scrape.status, 200);
+        assert.match(scrape.text, /smartrate_requests_total\{[^\n]*outcome="allowed"/);
+      }
     });
 
     it('README quick start records both global and checkout metrics', async () => {
-      defaultMetricsCollector.reset();
-      const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
-      const quickStart = readme.split('## Quick Start\n')[1];
-      const code = quickStart?.match(/```javascript\n([\s\S]*?)\n```/)?.[1];
-      const listen = "app.listen(3000, () => console.log('Server running on http://localhost:3000'));";
-      assert.ok(code?.includes(listen));
-      const runnable = code.replace(/^import[\s\S]*?from '[^']+';\n/gm, '').replace(listen, 'return app;');
-      const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-      const createClient = () => ({ isOpen: false, on() {}, connect: async () => { throw new Error('offline'); } });
-      const example = await new AsyncFunction('express', 'createClient', 'rateLimiter', 'RedisStore', 'MemoryStore', 'ResilientStore', 'createPrometheusExporter', runnable)(
-        express, createClient, rateLimiter, RedisStore, MemoryStore, ResilientStore, createPrometheusExporter
-      );
-      assert.equal((await request(example).post('/api/checkout')).status, 200);
-      const scrape = await request(example).get('/metrics');
-      assert.equal(scrape.status, 200);
-      assert.match(scrape.text, /smartrate_requests_total\{algorithm="fixed-window"[^\n]*outcome="allowed"/);
-      assert.match(scrape.text, /smartrate_requests_total\{algorithm="token-bucket"[^\n]*outcome="allowed"/);
+      const rawReadme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+      for (const newline of ['\n', '\r\n']) {
+        defaultMetricsCollector.reset();
+        const readme = rawReadme.replace(/\r?\n/g, newline);
+        const quickStart = readme.split(/## Quick Start\r?\n/)[1];
+        const code = quickStart?.match(/```javascript\r?\n([\s\S]*?)\r?\n```/)?.[1];
+        const listen = "app.listen(3000, () => console.log('Server running on http://localhost:3000'));";
+        assert.ok(code?.includes(listen));
+        const runnable = code.replace(/^import[\s\S]*?from '[^']+';\r?\n/gm, '').replace(listen, 'return app;');
+        const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+        const createClient = () => ({ isOpen: false, on() {}, connect: async () => { throw new Error('offline'); } });
+        const example = await new AsyncFunction('express', 'createClient', 'rateLimiter', 'RedisStore', 'MemoryStore', 'ResilientStore', 'createPrometheusExporter', runnable)(
+          express, createClient, rateLimiter, RedisStore, MemoryStore, ResilientStore, createPrometheusExporter
+        );
+        assert.equal((await request(example).post('/api/checkout')).status, 200);
+        const scrape = await request(example).get('/metrics');
+        assert.equal(scrape.status, 200);
+        assert.match(scrape.text, /smartrate_requests_total\{algorithm="fixed-window"[^\n]*outcome="allowed"/);
+        assert.match(scrape.text, /smartrate_requests_total\{algorithm="token-bucket"[^\n]*outcome="allowed"/);
+      }
     });
 
     it('serves Prometheus metrics with the correct HTTP 200 and Content-Type header', async () => {

@@ -35,6 +35,34 @@ describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run re
     }
   });
 
+  it('enforces default quotas in Redis without standard quota headers when disabled', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const store = new RedisStore({ client, prefix });
+    const app = express();
+    app.get('/', rateLimiter({ store, standardHeaders: false }), (req, res) => res.sendStatus(200));
+    for (let i = 0; i < 60; i++) {
+      const res = await request(app).get('/');
+      assert.equal(res.status, 200);
+      assert.equal(res.headers['ratelimit-limit'], undefined);
+    }
+    const blocked = await request(app).get('/');
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers['ratelimit-limit'], undefined);
+    assert.equal(blocked.headers['ratelimit-remaining'], undefined);
+    assert.equal(blocked.headers['ratelimit-reset'], undefined);
+    assert.ok(Number(blocked.headers['retry-after']) > 0);
+    const keys = await client.keys(`${prefix}:*`);
+    assert.equal(keys.length, 1);
+    const ttl = await client.pTTL(keys[0]);
+    assert.ok(ttl > 0 && ttl <= 60000);
+  });
+
   it('infers the same token refill as MemoryStore for different intervals', async (t) => {
     const client = await connect();
     const prefix = `limitforge-test-${randomUUID()}`;
