@@ -91,6 +91,7 @@ export interface RateLimiterOptions {
   metrics?: boolean | MetricsCollector;
   metricsCollector?: MetricsCollector;
   routeNormalizer?: (req: Request) => string;
+  includeRoute?: boolean;
   openTelemetry?: boolean | OpenTelemetryBridge | { tracer?: any; getSpan?: (req: Request) => any; recordEvaluation?: Function; recordStoreError?: Function };
   statusCode?: number;
   message?: string | object | ((req: Request, res: Response) => any | Promise<any>);

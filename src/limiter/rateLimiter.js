@@ -44,6 +44,7 @@ function validateOptions(options) {
     metrics,
     metricsCollector,
     routeNormalizer,
+    includeRoute,
     openTelemetry,
     hashClientIdentifier,
     breakerId,
@@ -101,6 +102,10 @@ function validateOptions(options) {
 
   if (routeNormalizer !== undefined && typeof routeNormalizer !== 'function') {
     throw new TypeError("SmartRate: 'routeNormalizer' must be a function.");
+  }
+
+  if (includeRoute !== undefined && typeof includeRoute !== 'boolean') {
+    throw new TypeError("SmartRate: 'includeRoute' must be a boolean.");
   }
 
   if (fallbackStore !== undefined) {
@@ -271,6 +276,7 @@ export function rateLimiter(options = {}) {
     metrics,
     metricsCollector,
     routeNormalizer,
+    includeRoute,
     openTelemetry,
     hashClientIdentifier = false,
     breakerId,
@@ -372,6 +378,7 @@ export function rateLimiter(options = {}) {
   }
 
   const isResilient = store instanceof ResilientStore;
+  const visitedRoutes = new WeakMap();
   const safeTelemetry = (fn) => {
     try {
       fn();
@@ -413,7 +420,21 @@ export function rateLimiter(options = {}) {
 
       const method = (req.method || 'GET').toUpperCase();
       const normalizedRoute = normalizeRoute(req, routeNormalizer);
-      const routeKey = normalizedRoute;
+      // req.route can still refer to an earlier handler when app.use runs. Only
+      // treat it as route-level when this limiter belongs to that route's stack.
+      let isRouteHandler = Array.isArray(req.route?.stack) &&
+        req.route.stack.some((layer) => layer.handle === rateLimiterMiddleware);
+      if (isRouteHandler) {
+        let routes = visitedRoutes.get(req);
+        if (!routes) {
+          routes = new WeakSet();
+          visitedRoutes.set(req, routes);
+        }
+        if (routes.has(req.route)) isRouteHandler = false;
+        else routes.add(req.route);
+      }
+      const useRoute = includeRoute ?? (isRouteHandler || Boolean(routeNormalizer));
+      const routeKey = useRoute ? normalizedRoute : '__limitforge_global__';
       const defaultStoreLabel = isResilient
         ? 'resilient'
         : (store instanceof RedisStore ? 'redis' : (store instanceof MemoryStore ? 'memory' : 'custom'));

@@ -35,6 +35,21 @@ describe('real Redis integration', { skip: !redisUrl && 'Set REDIS_URL to run re
     }
   });
 
+  it('shares the global quota across arbitrary paths using Redis', async (t) => {
+    const client = await connect();
+    const prefix = `limitforge-test-${randomUUID()}`;
+    t.after(async () => {
+      const keys = await client.keys(`${prefix}:*`);
+      if (keys.length) await client.del(keys);
+      client.destroy();
+    });
+    const app = express();
+    app.use(rateLimiter({ limit: 1, windowMs: 60000, store: new RedisStore({ client, prefix }) }));
+    app.get('/users/:name', (req, res) => res.sendStatus(200));
+    assert.equal((await request(app).get('/users/alice')).status, 200);
+    assert.equal((await request(app).get('/users/bob')).status, 429);
+  });
+
   it('fails closed on a disconnected primary and resumes after reconnecting', async (t) => {
     const client = await connect();
     const prefix = `limitforge-test-${randomUUID()}`;

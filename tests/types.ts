@@ -59,6 +59,7 @@ const fullLimiter = rateLimiter({
   metrics: collector,
   metricsCollector: collector,
   routeNormalizer: (req: Request) => '/normalized',
+  includeRoute: true,
   openTelemetry: otel,
   statusCode: 429,
   message: { error: 'Quota exceeded' },

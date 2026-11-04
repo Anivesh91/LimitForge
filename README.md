@@ -149,9 +149,17 @@ LimitForge comes with zero-dependency native observability:
 
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:37cc4ca4255e81865a56461cff41c70294bc008ad58c676c16b8289059f167dd -->
+<!-- coderabbit-ai-generated-section:v1:4077b46726b272a29ceb4d90d810107b10742441a74cc285082c28dadff8f5cc -->
 
 For `ResilientStore`, configure `timeoutMs` on the store itself; the middleware option applies to standalone stores.
+
+**Route quota scope:** By default, middleware registered with `app.use()` shares a quota across paths for each client and HTTP method. Middleware attached directly to a matched route uses that route's pattern, so parameter values in the route share a quota. Different HTTP methods remain separate. Set `includeRoute: false` to share a quota across route-level handlers too.
+
+Set `includeRoute: true` to use per-path quotas in global middleware, or supply `routeNormalizer` to group paths explicitly. Before Express matches a route, unrecognized dynamic values can produce separate quotas when `includeRoute` is enabled. A parameterized router mount can also put dynamic values in `req.baseUrl`; use a normalizer to group them. Ensure the custom normalizer returns a stable group and handles errors. Explicit `includeRoute: false` takes precedence over a custom normalizer for the quota key; the normalizer still affects telemetry labels.
+
+Automatic route-level detection works for limiters attached directly to Express routes. When wrapping a limiter in another handler, set `includeRoute` explicitly to choose the intended scope.
+
+This changes the default keys for global middleware. Existing per-path Redis counters are not migrated into the new shared quota. Plan for a quota reset and avoid mixing old and new versions when strict quotas are required; alternatively, use `includeRoute: true` to retain prior keying behavior.
 
 <!-- /coderabbit-ai-generated:v1 -->
 
