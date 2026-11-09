@@ -59,12 +59,15 @@ export declare class CircuitBreaker {
   trip(): void;
   reset(): void;
   getStats(): {
-    state: string;
+    state: 'CLOSED' | 'OPEN' | 'HALF_OPEN';
     consecutiveFailures: number;
     consecutiveSuccesses: number;
     failureThreshold: number;
     resetTimeoutMs: number;
     successThreshold: number;
+    lastFailureTime: number | null;
+    nextAttempt: number;
+    probeInFlight: boolean;
   };
 }
 
@@ -236,10 +239,16 @@ export interface PrometheusExporterOptions {
 }
 export declare function createPrometheusExporter(options?: PrometheusCollector | PrometheusExporterOptions): RequestHandler;
 export declare function formatPrometheusMetrics(snapshot?: any): string;
+export declare function escapeLabelValue(value: unknown): string;
+export declare function escapeHelpString(help: unknown): string;
+export declare function formatLabels(labels?: Record<string, unknown>, additionalLabels?: Record<string, unknown>): string;
 export declare function withTimeout<T>(operation: Promise<T> | T, timeoutMs: number): Promise<T>;
 export declare function runBenchmark(options?: any): Promise<any>;
 export declare function calculatePercentiles(latencies: bigint[]): any;
 
 export declare const METRIC_NAMES: Record<string, string>;
 export declare const METRIC_TYPE: Record<string, string>;
+export declare const METRIC_METADATA: Readonly<Record<string, { type: string; help: string }>>;
 export declare const CIRCUIT_STATE: Record<string, string>;
+export declare const CIRCUIT_STATE_GAUGE_VALUES: Readonly<Record<'CLOSED' | 'HALF_OPEN' | 'OPEN', number>>;
+export declare const DEFAULT_STORE_DURATION_BUCKETS: readonly number[];

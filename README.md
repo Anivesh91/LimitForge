@@ -185,7 +185,7 @@ Run nanosecond-resolution overhead benchmarks (`process.hrtime.bigint()`):
 npm run benchmark
 ```
 
-`MemoryStore` evaluation adds roughly **+2.3 µs to +3.4 µs** p50 latency over a no-op middleware (`2.6 µs to 3.7 µs` scenario p50). See [docs/PERFORMANCE_REPORT.md](docs/PERFORMANCE_REPORT.md) for full results.
+`MemoryStore` evaluation adds roughly **+2.4 µs to +2.5 µs** p50 latency over a no-op middleware (`2.8 µs to 2.9 µs` scenario p50). See [docs/PERFORMANCE_REPORT.md](docs/PERFORMANCE_REPORT.md) for full results.
 
 ## Documentation
 

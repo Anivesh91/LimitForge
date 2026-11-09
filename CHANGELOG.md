@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [9.0.1] - 2026-11-09
+
+### Fixed
+- **Observability Docker Stack Dependencies (`examples/observability-stack/Dockerfile`)**: Explicitly installed `express` and optional peer dependency `redis` during image build so `docker compose up` starts cleanly with zero runtime dependencies in `package.json`; removed obsolete `version` key from `docker-compose.yml`.
+- **TypeScript Declarations Alignment (`index.d.ts`)**: Added missing declarations for exported Prometheus formatting helpers (`escapeLabelValue`, `escapeHelpString`, `formatLabels`), telemetry metadata constants (`METRIC_METADATA`, `CIRCUIT_STATE_GAUGE_VALUES`, `DEFAULT_STORE_DURATION_BUCKETS`), and `CircuitBreaker.getStats()` runtime fields (`lastFailureTime`, `nextAttempt`, `probeInFlight`).
+
+### Changed
+- **Benchmark & README Sync (`docs/PERFORMANCE_REPORT.md`, `README.md`)**: Updated latency and throughput figures to reflect measured `v9.0.0` `npm run benchmark` results (`+2.4–2.5 µs` added p50 overhead, `222k–262k ops/s` in-memory).
+
+---
+
 ## [9.0.0] - 2026-11-09
 
 ### Changed
@@ -162,6 +173,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Standard headers: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`.
   - HTTP 429 Too Many Requests response with `Retry-After` header.
 
+[9.0.1]: https://github.com/Anivesh91/LimitForge/compare/v9.0.0...v9.0.1
 [9.0.0]: https://github.com/Anivesh91/LimitForge/compare/v8.1.0...v9.0.0
 [8.1.0]: https://github.com/Anivesh91/LimitForge/compare/v8.0.2...v8.1.0
 [8.0.2]: https://github.com/Anivesh91/LimitForge/compare/v8.0.1...v8.0.2

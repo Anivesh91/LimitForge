@@ -17,9 +17,16 @@ import {
   withTimeout,
   createPrometheusExporter,
   formatPrometheusMetrics,
+  escapeLabelValue,
+  escapeHelpString,
+  formatLabels,
   MAX_IDENTIFIER_LENGTH,
   CIRCUIT_STATE,
-  METRIC_NAMES
+  CIRCUIT_STATE_GAUGE_VALUES,
+  DEFAULT_STORE_DURATION_BUCKETS,
+  METRIC_NAMES,
+  METRIC_TYPE,
+  METRIC_METADATA
 } from 'limitforge';
 
 const app = express();
@@ -35,6 +42,10 @@ app.use(basicLimiter);
 // 2. Comprehensive Rate Limiter with all options
 const memStore = new MemoryStore({ cleanupIntervalMs: 30000 });
 const cb = new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 5000, breakerId: 'cb-1' });
+const cbStats = cb.getStats();
+const lastFailure: number | null = cbStats.lastFailureTime;
+const nextAttemptAt: number = cbStats.nextAttempt;
+const probing: boolean = cbStats.probeInFlight;
 
 const collector = new MetricsCollector();
 const configurableCollector = new MetricsCollector({ maxSeries: 20, storeDurationBuckets: [0.1, 1] });
@@ -125,7 +136,15 @@ const sanitized: string = sanitizePath('/api/items/123');
 const timeoutErr = new StoreTimeoutError(250, 'timeout');
 const cbErr = new CircuitBreakerOpenError('open', 5000);
 
-// 6. Prometheus exporter
+// 6. Prometheus exporter & telemetry helpers
+const escapedVal: string = escapeLabelValue('a"b');
+const escapedHelp: string = escapeHelpString('help\nline');
+const formattedLabels: string = formatLabels({ route: '/api' }, { outcome: 'allowed' });
+const openValue: number = CIRCUIT_STATE_GAUGE_VALUES.OPEN;
+const defaultBuckets: readonly number[] = DEFAULT_STORE_DURATION_BUCKETS;
+const metaType: string = METRIC_METADATA[METRIC_NAMES.REQUESTS_TOTAL].type;
+const counterType: string = METRIC_TYPE.COUNTER;
+
 app.get('/metrics', createPrometheusExporter(collector));
 app.get('/metrics-options', createPrometheusExporter({ collector }));
 app.get('/metrics-alias', createPrometheusExporter({ metricsCollector: collector }));
@@ -134,4 +153,15 @@ app.get('/metrics-default', createPrometheusExporter());
 // @ts-expect-error collector must implement getSnapshot
 createPrometheusExporter({ collector: {} });
 
-console.log('TypeScript definitions test passed compilation!');
+console.log('TypeScript definitions test passed compilation!', {
+  lastFailure,
+  nextAttemptAt,
+  probing,
+  escapedVal,
+  escapedHelp,
+  formattedLabels,
+  openValue,
+  defaultBuckets,
+  metaType,
+  counterType
+});
