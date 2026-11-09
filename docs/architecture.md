@@ -1,12 +1,10 @@
 # LimitForge Architecture
 
-This document describes the internal architecture, evaluation pipeline, and storage layer design of **LimitForge**.
+Internal evaluation pipeline, pluggable storage contract, Redis Lua semantics, and key-encoding design of LimitForge.
 
----
+## 1. Request Evaluation Pipeline
 
-## 1. Request Pipeline & Evaluation Flow
-
-LimitForge acts as an Express.js middleware intercepting incoming HTTP requests before they reach downstream route handlers.
+LimitForge intercepts incoming Express HTTP requests before downstream route handlers run:
 
 ```mermaid
 flowchart TD
@@ -29,63 +27,50 @@ flowchart TD
     HeadersBlocked --> Reject429[HTTP 429 Too Many Requests]
 ```
 
----
-
 ## 2. Pluggable Storage Layer
 
-LimitForge decouples rate limiting algorithms from storage mechanisms through a unified store interface:
+Algorithms and backing storage are decoupled behind `.consume(params)`:
 
 ```typescript
-interface RateLimitStore {
-  consume(key: string, options: ConsumeOptions): Promise<RateLimitResult>;
+interface IRateLimitStore {
+  consume(params: StoreConsumeParams): Promise<StoreConsumeResult> | StoreConsumeResult;
 }
 ```
 
 ### Store Implementations
 
-| Store | Backing Engine | Concurrency & Atomicity | Typical Use Case |
+| Store | Backing Engine | Clock & Atomicity | Typical Use Case |
 | :--- | :--- | :--- | :--- |
-| **`MemoryStore`** | JavaScript `Map` + sweeping timers | In-process monotonic clock (`Date.now()`) | Single-instance apps, development, zero external dependencies |
-| **`RedisStore`** | Redis server (v4/v5/v6 client) | Atomic Lua scripts executed on Redis engine | Multi-instance distributed APIs, Kubernetes, microservices |
-| **`ResilientStore`** | Primary (`RedisStore`) + Fallback (`MemoryStore`) | Circuit Breaker guarded with timeout wrapper | High-availability production APIs with zero store single-point-of-failure |
-
----
+| `MemoryStore` | JavaScript `Map` + unref'd cleanup timer | In-process system clock (`Date.now()`) | Single-node services, local dev, zero external dependencies |
+| `RedisStore` | Redis (`node-redis` v4/v5/v6) | Atomic Lua scripts using Redis server `TIME` | Multi-instance distributed APIs |
+| `ResilientStore` | Primary + fallback store | Circuit breaker guarded by `withTimeout()` | High-availability setups avoiding Redis SPOF |
 
 ## 3. Atomic Redis Lua Scripts
 
-To prevent distributed race conditions (TOCTOU: Time-of-Check to Time-of-Use), `RedisStore` evaluates rate limiting logic entirely inside Redis using atomic Lua scripts:
+To eliminate read-modify-write race conditions across application replicas, `RedisStore` runs rate-limit evaluation atomically inside Redis Lua scripts.
 
 ### A. Fixed Window (`src/scripts/fixedWindow.lua`)
-<!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:29f6954756b9b2bf792edae317277766cfdd2329328146a1185484aeffeae8b4 -->
-
-- Stores the counter and its window start together in a versioned Redis string. Each update uses one atomic Lua script and `SET ... PX`, with the Redis server clock.
-- When an active window changes duration, expiration is recalculated from its original start. A policy change cannot recover a window that has already expired.
-- Legacy numeric counters are migrated on access without losing their count. Their original start time is unavailable, so migration conservatively retains the counter for at least its remaining TTL and one current window. This can extend that window.
-- Old versions use `INCR` on these keys and cannot read the new format. Stop old instances before migrating keys; a rollback requires waiting for migrated keys to expire or accepting quota resets. Redis ACLs must allow `GET`, `PTTL`, `TIME`, and `SET` from the script.
-- Fixed and sliding windows accept fractional milliseconds; Redis rounds the window duration and expiry up to whole milliseconds. Existing fixed-window keys without an expiry still raise an error and need operator review. Previously orphaned sliding-window keys also need review if they are not accessed again.
-
-<!-- /coderabbit-ai-generated:v1 -->
+- Persists counter and window start together in a versioned string (`lf1|<count>|<startMs>|<legacyUntilMs>`) updated atomically via `SET ... PX` against Redis `TIME`.
+- Recalculates remaining expiry from the active window start when dynamic `windowMs` policies change (already-expired windows are never resurrected).
+- Rounds fractional durations up (`Math.ceil`) to whole milliseconds so sub-millisecond inputs never drop key TTLs, rejecting non-positive or overflow-unsafe windows and keys missing a TTL (`PTTL == -1`).
+- Migrates legacy plain numeric keys (created by older `INCR`-based schemas) on access by retaining them until `max(start + windowMs, legacyUntil)`. Old `INCR`-based instances cannot parse the versioned format, so mixed deployments should be avoided during upgrades; Redis ACLs must permit `GET`, `PTTL`, `TIME`, and `SET`.
 
 ### B. Sliding Window (`src/scripts/slidingWindow.lua`)
-- Uses a Redis **Sorted Set (ZSET)** where scores represent microsecond/millisecond timestamps.
-- Trims expired timestamps via `ZREMRANGEBYSCORE key -inf cutoff`.
-- Counts active requests within rolling window via `ZCARD`.
-- Conditionally adds current request via `ZADD` and renews key TTL.
+
+- Uses a Redis Sorted Set (`ZSET`) keyed by unique request members and millisecond timestamp scores (Redis `TIME` unless overridden via `now`).
+- Evicts expired timestamps via `ZREMRANGEBYSCORE key -inf cutoff`, counts active members via `ZCARD`, conditionally records allowed requests with `ZADD`, and refreshes `PEXPIRE` using `Math.ceil(windowMs)`.
 
 ### C. Token Bucket (`src/scripts/tokenBucket.lua`)
-- Stores state in a Redis **Hash (`HMGET`/`HSET`)**: `tokens` (floating-point balance) and `lastRefill` (timestamp).
-- Calculates continuous sub-second token replenishment:
+
+- Stores `tokens` and `lastRefill` inside a Redis Hash (`HMGET`/`HSET`) using the Redis server clock.
+- Replenishes continuously at sub-second granularity:
   $$\text{refilledTokens} = \min(\text{capacity}, \text{currentTokens} + \text{elapsedMs} \times \text{refillRatePerMs})$$
-- Atomically deducts request `cost` if $\text{refilledTokens} \ge \text{cost}$.
-- Calculates exact fractional `Retry-After` seconds when tokens are insufficient.
+- Deducts request `cost` atomically when balance is sufficient and computes exact `Retry-After` and `RateLimit-Reset` values in seconds.
 
----
+## 4. Key Encoding & Cardinality Protection
 
-## 4. Key Building & Cardinality Guard
-
-To prevent denial-of-wallet attacks and Redis memory bloat:
-1. **Route Normalization**: Paths are collapsed (e.g., `/users/123` $\to$ `/users/:id`) to prevent unbounded key explosions.
-2. **Identifier Clamping**: Client identifiers (`req.ip`, API keys) are strictly clamped to a maximum length of 256 characters (`MAX_IDENTIFIER_LENGTH = 256`).
-3. **Identifier Masking**: When `hashClientIdentifier: true` is configured, raw tokens are hashed with SHA-256 before storage so raw API keys never appear in Redis keys or monitor logs.
+1. **Structured Key Format**: Keys follow `<prefix>:[<algorithm>:]<METHOD>:<routeScope>:<identifier>` (omitting the algorithm segment for `fixed-window`).
+2. **Route Scoping & Normalization**: Middleware mounted globally with `app.use()` shares `__limitforge_global__` per client and method unless `includeRoute: true` or a `routeNormalizer` is set; direct route handlers use Express matched patterns (`req.baseUrl + req.route.path`). Telemetry always normalizes dynamic path segments (integers, UUIDs, ULIDs, CUIDs, long hex strings) into `:id`.
+3. **Delimiter & UTF-16 Escaping**: Segment builders escape `:`, `%`, and unpaired UTF-16 surrogates (`%uXXXX`) to eliminate cross-segment collisions and Redis UTF-8 replacement ambiguity.
+4. **Length Bounding & Hashing**: Client identifiers exceeding `MAX_IDENTIFIER_LENGTH` (`256`) are SHA-256 hashed (`~h~...`) automatically; setting `hashClientIdentifier: true` (or supplying a custom hash function) ensures raw tokens are never stored in Redis keys.

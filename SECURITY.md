@@ -1,54 +1,33 @@
 # Security Policy
 
-The LimitForge team and contributors take the security of our distributed rate limiting and resilience middleware seriously. We appreciate your efforts to responsibly disclose vulnerabilities to help us keep our users and applications safe.
-
----
-
 ## Supported Versions
 
-Only the latest major version receives active security updates and patches.
+Active security fixes apply to the current major release line:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 8.x     | :white_check_mark: |
-| < 8.0   | :x:                |
+| Version | Supported |
+| :--- | :--- |
+| 9.x | Yes |
+| < 9.0 | No |
 
-We strongly advise all users to stay updated with the latest release on [npm](https://www.npmjs.com/package/limitforge).
-
----
+Upgrade to the latest release on [npm](https://www.npmjs.com/package/limitforge) before reporting an issue.
 
 ## Reporting a Vulnerability
 
-**Please do not report security vulnerabilities through public GitHub issues.**
+**Do not report security vulnerabilities in public GitHub issues.**
 
-If you believe you have discovered a security vulnerability in LimitForge (such as a rate-limit bypass, timing attack, denial-of-service vector, memory leak, or cryptographic issue):
+Instead, disclose privately using one of the following channels:
 
-1. **GitHub Security Advisory (Preferred):**
-   Submit a private report through the [LimitForge Security Advisory Page](https://github.com/Anivesh91/LimitForge/security/advisories/new).
+1. **GitHub Security Advisory**: Submit a private report via [Security Advisories](https://github.com/Anivesh91/LimitForge/security/advisories/new).
+2. **Email**: Send details to [aniveshsikarwar@gmail.com](mailto:aniveshsikarwar@gmail.com) with subject `[SECURITY] LimitForge vulnerability report`.
 
-2. **Direct Email:**
-   If you prefer email, send a detailed report to:
-   - **Anivesh Sikarwar**: [aniveshsikarwar@gmail.com](mailto:aniveshsikarwar@gmail.com)
-   - Subject line: `[SECURITY] Potential vulnerability in LimitForge`
+### Useful Details to Include
+- Clear description of the issue (bypass, DoS/memory growth, key collision, etc.)
+- Minimal reproduction steps or PoC script
+- Node.js, LimitForge, OS, and Redis versions
+- Expected impact or suggested remediation
 
-### What to Include in Your Report
+## Response Timeline
 
-To help us triage and resolve the issue quickly, please provide:
-- A clear description of the vulnerability.
-- Steps to reproduce or a minimal Proof of Concept (PoC) script.
-- The environment and versions used (Node.js version, LimitForge version, OS, Redis version if applicable).
-- Potential impact and threat model (e.g., bypass of rate limits, memory exhaustion under heavy load).
-- Any proposed fix or remediation (optional).
-
----
-
-## Response Process & Timeline
-
-When we receive a vulnerability report:
-
-1. **Initial Acknowledgment:** We will acknowledge receipt of your report within **48 hours**.
-2. **Investigation & Triage:** We will confirm the issue, assess severity (CVSS), and determine the affected components within **5 business days**.
-3. **Patch Development:** A fix will be developed in a private security branch and validated against our full test suite.
-4. **Coordinated Disclosure:** We will coordinate release timing with you. A patched version will be published to npm along with a GitHub Security Advisory crediting your discovery (unless you prefer to remain anonymous).
-
-Thank you for helping keep LimitForge and the open-source ecosystem secure!
+1. **Acknowledgment**: Within 48 hours of receipt.
+2. **Triage**: Severity assessment and scope confirmation within 5 business days.
+3. **Fix & Release**: Prepared privately, verified against the test suite, and published with coordinated disclosure credit (unless anonymity is requested).

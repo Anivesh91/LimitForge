@@ -68,7 +68,7 @@ function createMockRedisClient() {
   };
 }
 
-describe('SmartRate v4 — Dynamic & Tier-Based Policy Tests', () => {
+describe('Dynamic & Tier-Based Policy Tests', () => {
 
   describe('Tier-Based Limit & Quota Enforcement (Fixed Window)', () => {
     it('applies tier-dependent limits (Free: 3 reqs vs Pro: 10 reqs) and sets matching headers', async () => {

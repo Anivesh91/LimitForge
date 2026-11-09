@@ -8,7 +8,6 @@ const PORT = Number(process.env.DEMO_PORT || 3002);
 app.set('trust proxy', true);
 app.use(express.json());
 
-// in memory store instance for demonstration
 const memoryStore = new MemoryStore();
 
 app.get(
@@ -49,21 +48,21 @@ app.get(
 
 app.get('/', (req, res) => {
   res.json({
-    title: 'LimitForge v3 — Algorithm Comparison Demo',
+    title: 'LimitForge — Algorithm Comparison Demo',
     endpoints: [
       {
         path: '/api/fixed',
         algorithm: 'fixed-window',
         limit: 5,
         windowMs: 10000,
-        note: 'Prone to boundary bursts (e.g. 5 reqs at t=9s, 5 reqs at t=10.1s -> 10 reqs in ~1s)'
+        note: 'Fixed window permits edge bursts across boundary rollovers'
       },
       {
         path: '/api/sliding',
         algorithm: 'sliding-window',
         limit: 5,
         windowMs: 10000,
-        note: 'Strictly rolling: guarantees no more than 5 reqs in ANY 10-second rolling window'
+        note: 'Rolling window enforces at most 5 requests over any 10s interval'
       }
     ]
   });
@@ -74,18 +73,14 @@ let server;
 export function startDemoServer(port = PORT) {
   return new Promise((resolve) => {
     server = app.listen(port, () => {
-      console.log(`\n======================================================`);
-      console.log(`LimitForge v3 Comparison Demo running at http://localhost:${port}`);
-      console.log(`======================================================`);
-      console.log(`[Fixed Window]   GET http://localhost:${port}/api/fixed   (5 req / 10s)`);
-      console.log(`[Sliding Window] GET http://localhost:${port}/api/sliding (5 req / 10s)`);
-      console.log(`======================================================\n`);
+      console.log(`LimitForge comparison demo listening on http://localhost:${port}`);
+      console.log(`  GET /api/fixed   -> fixed-window (5 req / 10s)`);
+      console.log(`  GET /api/sliding -> sliding-window (5 req / 10s)`);
       resolve(server);
     });
   });
 }
 
-// auto start server if executed directly from cli
 if (process.argv[1] && process.argv[1].endsWith('sliding-demo.js')) {
   startDemoServer();
 }

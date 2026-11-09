@@ -81,7 +81,7 @@ function createTestApp() {
   return app;
 }
 
-describe('SmartRate — Concurrency & Atomicity Verification', () => {
+describe('Concurrency & Atomicity Verification', () => {
 
   describe('Fixed Window Concurrency', () => {
     it('verifies that allowed requests do not exceed configured quota under 50 concurrent requests', async () => {

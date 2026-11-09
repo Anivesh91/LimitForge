@@ -8,7 +8,6 @@ import {
   ResilientStore,
   CircuitBreaker,
   createPrometheusExporter,
-  defaultMetricsCollector,
   OpenTelemetryBridge
 } from '../../src/index.js';
 
@@ -18,7 +17,6 @@ const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 
 app.use(express.json());
 
-// setup opentelemetry bridge
 const otelBridge = new OpenTelemetryBridge({
   getSpan: (req) => req.telemetrySpan
 });
@@ -34,17 +32,17 @@ app.use((req, res, next) => {
   next();
 });
 
-// setup redis primary store with fallback capability
 let chaosActive = false;
 let redisClient = null;
 
 try {
   redisClient = createClient({ url: REDIS_URL, disableOfflineQueue: true, socket: { connectTimeout: 1000 } });
-  redisClient.on('error', (err) => {
-    // expected during offline chaos states
+  redisClient.on('error', () => {
+    // expected when testing degraded chaos failover
   });
   redisClient.connect().catch(() => {});
 } catch {
+  // fallback store handles startup without Redis
 }
 
 const primaryRedisStore = redisClient ? new RedisStore({ client: redisClient }) : null;
@@ -72,7 +70,6 @@ const resilientStore = new ResilientStore({
   timeoutMs: 250
 });
 
-// rate limiters
 const publicLimiter = rateLimiter({
   limit: 20,
   windowMs: 15000,
@@ -102,7 +99,6 @@ const loginLimiter = rateLimiter({
   breakerId: 'auth-bucket'
 });
 
-// api routes
 app.get('/api/public', publicLimiter, (req, res) => {
   res.json({
     success: true,
@@ -144,10 +140,8 @@ app.post('/api/chaos/heal-store', checkChaosAllowed, (req, res) => {
   });
 });
 
-// prometheus exporter endpoint
 app.get('/metrics', createPrometheusExporter());
 
-// healthcheck
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
@@ -156,28 +150,22 @@ app.get('/health', (req, res) => {
   });
 });
 
-// global error handler
 app.use((err, req, res, next) => {
   res.status(500).json({ error: err.message });
 });
 
 if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
-    console.log('================================================================================');
-    console.log('   LimitForge V8.0.1 — Production Observability Demo Stack');
-    console.log('================================================================================');
-    console.log(`• Express Server:       http://localhost:${PORT}`);
-    console.log(`• Prometheus Metrics:   http://localhost:${PORT}/metrics`);
-    console.log(`• Prometheus Server:    http://localhost:9090`);
-    console.log(`• Grafana Dashboard:    http://localhost:3001 (admin / ${process.env.GRAFANA_ADMIN_PASSWORD || 'limitforge_secure_dev'})`);
-    console.log('--------------------------------------------------------------------------------');
-    console.log('Active Routes:');
-    console.log('  GET  /api/public        (Fixed Window: 20 req / 15s)');
-    console.log('  GET  /api/users/:id     (Sliding Window: 8 req / 10s)');
-    console.log('  POST /api/auth/login    (Token Bucket: 4 capacity, refill 1 / 2s)');
-    console.log('  POST /api/chaos/break-store (Simulate Redis Outage)');
-    console.log('  POST /api/chaos/heal-store  (Restore Redis Store)');
-    console.log('================================================================================\n');
+    console.log(`LimitForge observability stack listening on http://localhost:${PORT}`);
+    console.log(`  Metrics:    http://localhost:${PORT}/metrics`);
+    console.log('  Prometheus: http://localhost:9090');
+    console.log(`  Grafana:    http://localhost:3001 (admin / ${process.env.GRAFANA_ADMIN_PASSWORD || 'limitforge_secure_dev'})`);
+    console.log('Routes:');
+    console.log('  GET  /api/public            (fixed-window: 20 req / 15s)');
+    console.log('  GET  /api/users/:id         (sliding-window: 8 req / 10s)');
+    console.log('  POST /api/auth/login        (token-bucket: cap 4, refill 1 / 2s)');
+    console.log('  POST /api/chaos/break-store');
+    console.log('  POST /api/chaos/heal-store');
   });
 }
 

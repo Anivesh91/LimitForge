@@ -11,7 +11,7 @@ function createTestApp() {
   return app;
 }
 
-describe('SmartRate v3 — Memory Sliding Window Tests', () => {
+describe('Memory Sliding Window Tests', () => {
 
   describe('Algorithm Option Validation', () => {
     it('defaults to fixed-window when algorithm is omitted', () => {

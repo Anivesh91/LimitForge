@@ -25,7 +25,7 @@ export function calculatePercentiles(samplesNs) {
   }
 
   const samplesUs = samplesNs
-    .map((ns) => (typeof ns === 'bigint' ? Number(ns) / 1000 : Number(ns) / 1000))
+    .map((ns) => Number(ns) / 1000)
     .sort((a, b) => a - b);
 
   const count = samplesUs.length;

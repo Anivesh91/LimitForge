@@ -56,7 +56,7 @@ function createDeterministicRedisClient() {
   };
 }
 
-describe('SmartRate v3 — Boundary-Burst Verification & Algorithm Comparison', () => {
+describe('Boundary-Burst Verification & Algorithm Comparison', () => {
 
   describe('MemoryStore: Boundary-Burst Prevention', () => {
     it('verifies boundary-burst prevention for the tested scenario on MemoryStore', () => {

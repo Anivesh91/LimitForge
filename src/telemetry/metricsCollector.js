@@ -1,5 +1,4 @@
 import {
-  METRIC_TYPE,
   METRIC_NAMES,
   CIRCUIT_STATE_GAUGE_VALUES,
   DEFAULT_STORE_DURATION_BUCKETS
@@ -7,18 +6,27 @@ import {
 
 function serializeLabelKey(labels = {}) {
   if (!labels || typeof labels !== 'object') return '';
-  const entries = Object.entries(labels).filter(([k, v]) => v !== undefined && v !== null);
+  const entries = Object.entries(labels).filter(([, v]) => v !== undefined && v !== null);
   if (entries.length === 0) return '';
   entries.sort(([a], [b]) => a.localeCompare(b));
   return entries.map(([k, v]) => `${k}="${String(v)}"`).join(',');
 }
 
-// The reserved key cannot collide with serialized user labels. The marker
-// also distinguishes the aggregate in Prometheus output.
+// Symbols avoid colliding with serialized user labels; OVERFLOW_COUNTER_LABELS
+// explicitly identifies capped aggregate series in Prometheus output.
 const OVERFLOW_COUNTER_KEY = Symbol('counter overflow');
 const OVERFLOW_HISTOGRAM_KEY = Symbol('histogram overflow');
 const OVERFLOW_COUNTER_LABELS = Object.freeze({ normalized_route: '_overflow', limitforge_overflow: 'true' });
 const OVERFLOW_COUNTER_LABEL_KEY = serializeLabelKey(OVERFLOW_COUNTER_LABELS);
+
+function resolveBoundedSeries(metricMap, labels, overflowKey, maxSeries) {
+  const labelKey = serializeLabelKey(labels);
+  const normalSeries = metricMap.size - (metricMap.has(overflowKey) ? 1 : 0);
+  if (labelKey === OVERFLOW_COUNTER_LABEL_KEY || (!metricMap.has(labelKey) && normalSeries >= Math.ceil(maxSeries) - 1)) {
+    return { seriesKey: overflowKey, seriesLabels: OVERFLOW_COUNTER_LABELS, isOverflow: true };
+  }
+  return { seriesKey: labelKey, seriesLabels: labels, isOverflow: false };
+}
 
 export class MetricsCollector {
   constructor(options = {}) {
@@ -29,36 +37,31 @@ export class MetricsCollector {
     this.gauges = new Map();
     this.histograms = new Map();
 
-    // Default gauge for circuit breaker state (0 = CLOSED)
     this.setGauge(METRIC_NAMES.CIRCUIT_BREAKER_STATE, CIRCUIT_STATE_GAUGE_VALUES.CLOSED);
   }
 
   incrementCounter(name, labels = {}, value = 1) {
     try {
-      if (!name || typeof name !== 'string') return;
-      if (typeof value !== 'number' || value <= 0) return;
+      if (!name || typeof name !== 'string' || typeof value !== 'number' || value <= 0) return;
 
-      if (!this.counters.has(name)) {
-        this.counters.set(name, new Map());
+      let metricMap = this.counters.get(name);
+      if (!metricMap) {
+        metricMap = new Map();
+        this.counters.set(name, metricMap);
       }
 
-      const metricMap = this.counters.get(name);
-      let targetLabels = labels;
-      let labelKey = serializeLabelKey(targetLabels);
+      const { seriesKey, seriesLabels, isOverflow } = resolveBoundedSeries(
+        metricMap,
+        labels,
+        OVERFLOW_COUNTER_KEY,
+        this.maxSeries
+      );
 
-      // Reserve one series for overflow; existing normal series keep updating.
-      const normalSeries = metricMap.size - (metricMap.has(OVERFLOW_COUNTER_KEY) ? 1 : 0);
-      if (labelKey === OVERFLOW_COUNTER_LABEL_KEY ||
-          (!metricMap.has(labelKey) && normalSeries >= Math.ceil(this.maxSeries) - 1)) {
-        labelKey = OVERFLOW_COUNTER_KEY;
-        targetLabels = OVERFLOW_COUNTER_LABELS;
-      }
-
-      const current = metricMap.get(labelKey) || { value: 0, labels: { ...targetLabels } };
+      const current = metricMap.get(seriesKey) || { value: 0, labels: { ...seriesLabels } };
       current.value += value;
-      metricMap.set(labelKey, current);
+      metricMap.set(seriesKey, current);
 
-      if (name === METRIC_NAMES.REQUESTS_TOTAL && labelKey === OVERFLOW_COUNTER_KEY) {
+      if (name === METRIC_NAMES.REQUESTS_TOTAL && isOverflow) {
         const outcomeMetric = labels?.outcome === 'allowed'
           ? METRIC_NAMES.OVERFLOW_REQUESTS_ALLOWED_TOTAL
           : labels?.outcome === 'blocked'
@@ -73,26 +76,21 @@ export class MetricsCollector {
 
   setGauge(name, value, labels = {}) {
     try {
-      if (!name || typeof name !== 'string') return;
-      if (typeof value !== 'number' || !Number.isFinite(value)) return;
+      if (!name || typeof name !== 'string' || typeof value !== 'number' || !Number.isFinite(value)) return;
 
-      if (!this.gauges.has(name)) {
-        this.gauges.set(name, new Map());
+      let metricMap = this.gauges.get(name);
+      if (!metricMap) {
+        metricMap = new Map();
+        this.gauges.set(name, metricMap);
       }
 
-      const metricMap = this.gauges.get(name);
-      let targetLabels = labels;
-      let labelKey = serializeLabelKey(targetLabels);
-
+      const labelKey = serializeLabelKey(labels);
       if (!metricMap.has(labelKey) && metricMap.size >= this.maxSeries) {
         this.incrementCounter(METRIC_NAMES.METRIC_UPDATES_DROPPED_TOTAL, { metric_type: 'gauge', metric_name: name });
         return;
       }
 
-      metricMap.set(labelKey, {
-        value,
-        labels: { ...targetLabels }
-      });
+      metricMap.set(labelKey, { value, labels: { ...labels } });
     } catch {
       // safe telemetry boundary
     }
@@ -100,43 +98,39 @@ export class MetricsCollector {
 
   observeHistogram(name, durationSeconds, labels = {}, customBuckets = this.storeDurationBuckets) {
     try {
-      if (!name || typeof name !== 'string') return;
-      if (typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds) || durationSeconds < 0) return;
-
-      if (!this.histograms.has(name)) {
-        this.histograms.set(name, new Map());
+      if (!name || typeof name !== 'string' || typeof durationSeconds !== 'number' || !Number.isFinite(durationSeconds) || durationSeconds < 0) {
+        return;
       }
 
-      const metricMap = this.histograms.get(name);
-      let targetLabels = labels;
-      let labelKey = serializeLabelKey(targetLabels);
-
-      const normalSeries = metricMap.size - (metricMap.has(OVERFLOW_HISTOGRAM_KEY) ? 1 : 0);
-      if (labelKey === OVERFLOW_COUNTER_LABEL_KEY ||
-          (!metricMap.has(labelKey) && normalSeries >= Math.ceil(this.maxSeries) - 1)) {
-        labelKey = OVERFLOW_HISTOGRAM_KEY;
-        targetLabels = OVERFLOW_COUNTER_LABELS;
+      let metricMap = this.histograms.get(name);
+      if (!metricMap) {
+        metricMap = new Map();
+        this.histograms.set(name, metricMap);
       }
 
-      let record = metricMap.get(labelKey);
+      const { seriesKey, seriesLabels } = resolveBoundedSeries(
+        metricMap,
+        labels,
+        OVERFLOW_HISTOGRAM_KEY,
+        this.maxSeries
+      );
+
+      let record = metricMap.get(seriesKey);
       if (!record) {
         const sortedBounds = [...customBuckets].sort((a, b) => a - b);
         record = {
-          labels: { ...targetLabels },
+          labels: { ...seriesLabels },
           buckets: sortedBounds.map((le) => ({ le, count: 0 })),
           sum: 0,
           count: 0
         };
-        metricMap.set(labelKey, record);
+        metricMap.set(seriesKey, record);
       }
 
       record.sum += durationSeconds;
       record.count += 1;
-
       for (const bucket of record.buckets) {
-        if (durationSeconds <= bucket.le) {
-          bucket.count += 1;
-        }
+        if (durationSeconds <= bucket.le) bucket.count += 1;
       }
     } catch {
       // safe telemetry boundary
@@ -180,36 +174,21 @@ export class MetricsCollector {
   }
 
   getSnapshot() {
-    const snapshot = {
-      counters: {},
-      gauges: {},
-      histograms: {}
-    };
+    const snapshot = { counters: {}, gauges: {}, histograms: {} };
 
     for (const [name, metricMap] of this.counters.entries()) {
-      snapshot.counters[name] = [];
-      for (const record of metricMap.values()) {
-        snapshot.counters[name].push({ ...record, labels: { ...record.labels } });
-      }
+      snapshot.counters[name] = Array.from(metricMap.values(), (r) => ({ ...r, labels: { ...r.labels } }));
     }
-
     for (const [name, metricMap] of this.gauges.entries()) {
-      snapshot.gauges[name] = [];
-      for (const record of metricMap.values()) {
-        snapshot.gauges[name].push({ ...record, labels: { ...record.labels } });
-      }
+      snapshot.gauges[name] = Array.from(metricMap.values(), (r) => ({ ...r, labels: { ...r.labels } }));
     }
-
     for (const [name, metricMap] of this.histograms.entries()) {
-      snapshot.histograms[name] = [];
-      for (const record of metricMap.values()) {
-        snapshot.histograms[name].push({
-          labels: { ...record.labels },
-          buckets: record.buckets.map((b) => ({ ...b })),
-          sum: record.sum,
-          count: record.count
-        });
-      }
+      snapshot.histograms[name] = Array.from(metricMap.values(), (r) => ({
+        labels: { ...r.labels },
+        buckets: r.buckets.map((b) => ({ ...b })),
+        sum: r.sum,
+        count: r.count
+      }));
     }
 
     return snapshot;

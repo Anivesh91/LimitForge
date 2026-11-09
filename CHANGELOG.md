@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [9.0.0] - 2026-11-09
+
+### Changed
+- **BREAKING — Prometheus Metric Namespace (`limitforge_*`)**: Renamed all core Prometheus metrics from `smartrate_*` to `limitforge_*` (`limitforge_requests_total`, `limitforge_store_errors_total`, `limitforge_degraded_requests_total`, `limitforge_circuit_breaker_state`, `limitforge_store_duration_seconds`), updated alerting rules (`limitforge.rules` / `LimitForge*`), and replaced the legacy Grafana dashboard with `assets/dashboards/limitforge-grafana-dashboard.json`.
+- **BREAKING — OpenTelemetry Span & Attribute Namespace (`limitforge.*`)**: Migrated child span names (`limitforge.consume`), span attributes (`limitforge.outcome`, `limitforge.algorithm`, `limitforge.route`, `limitforge.store`, `limitforge.remaining`, `limitforge.reset`, `limitforge.degraded`, `limitforge.store_error`), span events (`limitforge.rate_limit_exceeded`, `limitforge.store_error`), and the internal request span field (`req._limitForgeSpan`) from `smartrate.*` to `limitforge.*` while continuing to emit standard `ratelimit.*` attributes.
+- **BREAKING — Runtime Error Prefixes (`LimitForge:`)**: Standardized all middleware, store, resilience, and Redis Lua script error messages from `SmartRate:` to `LimitForge:`.
+- **Modular Middleware & Cleanup**: Refactored limiter internals into focused modules (`options.js`, `policyResolver.js`, `response.js`, `errorHandler.js`, `telemetryHelper.js`) and aligned documentation, examples, and test suites under the `LimitForge` identity.
+
+### Removed
+- Removed legacy `assets/dashboards/smartrate-grafana-dashboard.json`.
+
+---
+
 ## [8.1.0] - 2026-11-05
 
 ### Added
@@ -149,6 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Standard headers: `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`.
   - HTTP 429 Too Many Requests response with `Retry-After` header.
 
+[9.0.0]: https://github.com/Anivesh91/LimitForge/compare/v8.1.0...v9.0.0
 [8.1.0]: https://github.com/Anivesh91/LimitForge/compare/v8.0.2...v8.1.0
 [8.0.2]: https://github.com/Anivesh91/LimitForge/compare/v8.0.1...v8.0.2
 [8.0.1]: https://github.com/Anivesh91/LimitForge/compare/v8.0.0...v8.0.1

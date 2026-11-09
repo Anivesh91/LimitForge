@@ -1,16 +1,13 @@
 # Resilience & Failure Handling
 
-In distributed systems, the central rate-limiting store (such as Redis) can become slow, partitioned, or completely unavailable. Without defensive resilience guards, a Redis outage cascades into application-wide HTTP 504 gateway timeouts or total service disruption.
+When a remote rate-limit store becomes slow, unreachable, or partitioned, LimitForge isolates the failure path through four composable layers:
 
-**LimitForge** provides production-grade fault tolerance through four interlocking resilience layers:
-1. **Store Timeout Guard**
-2. **Configurable Failure Policies**
-3. **Circuit Breaker Engine**
-4. **Dual-Store Automatic Failover (`ResilientStore`)**
+1. **Store Timeout Guard** (`timeoutMs`)
+2. **Configurable Failure Policies** (`onStoreError`)
+3. **Circuit Breaker** (`CircuitBreaker`)
+4. **Dual-Store Failover** (`ResilientStore`)
 
----
-
-## 1. Resilience Architecture Overview
+## 1. Resilience Overview
 
 ```mermaid
 flowchart TD
@@ -45,66 +42,37 @@ flowchart TD
     LocalAllowed -->|"No"| Reject429[Set RateLimit-Degraded: true<br/>HTTP 429 Too Many Requests]
 ```
 
----
-
 ## 2. Store Timeout Guard (`timeoutMs`)
 
-If Redis experiences high CPU load, network latency, or an unreachable socket, queries can stall indefinitely.
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:c25772edb918a0fec1531921df5269774fa153d1229a2a07a83fafa14049eeeb -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:00122c954c70c2c3d13e0d018b229ad2b3f7621f750c6e6c52323165b67b4fd0 -->
-
-- Standalone store operations have a 250 ms default timeout. For a `ResilientStore`, configure `timeoutMs` on the store itself; it defaults to 250 ms and applies separately to the primary and the fallback. This changes the previous behavior, where the fallback had no timeout. If both stages are slow, the total wait may approach twice the timeout, plus scheduling delays. Synchronous code that blocks the event loop cannot be interrupted by this timer.
-- A timeout raises `StoreTimeoutError` and stops waiting. It does not cancel a running operation: either store can still execute and change quota state after the timeout. Redis commands may also run after reconnect, depending on client configuration. Configure client queueing and connection timeouts for your deployment.
-
-<!-- /coderabbit-ai-generated:v1 -->
-- When strict global enforcement is required, use `onStoreError: 'fail-closed'`. During timeout or outage, it returns 503 rather than using the local fallback. A timed-out command may still affect future quota decisions.
-- Active timers are cleared when operations resolve within the threshold.
-
-<!-- /coderabbit-ai-generated:v1 -->
+- Middleware store operations enforce a `250ms` default timeout. On `ResilientStore`, configure `timeoutMs` on the store instance itself (`250ms` default, applied independently to the primary call and the fallback call).
+- When the deadline expires, `withTimeout()` clears its timer cleanly on settlement and rejects with `StoreTimeoutError` (`ERR_STORE_TIMEOUT`). Underlying async operations (or synchronous CPU-bound blocks) are not cancelled and may still resolve after the timeout; configure `disableOfflineQueue: true` and socket connect timeouts on your Redis client to prevent stale queued replays after reconnect.
+- Where strict global quota consistency outweighs availability, set `onStoreError: 'fail-closed'` so primary timeouts/errors return `HTTP 503` instead of falling back locally.
 
 ```javascript
 import { rateLimiter, RedisStore } from 'limitforge';
 
 const limiter = rateLimiter({
   store: new RedisStore({ client: redisClient }),
-  timeoutMs: 100, // Bound store latency to 100ms
+  timeoutMs: 100,
   limit: 100,
   windowMs: 60000
 });
 ```
 
----
-
 ## 3. Store Failure Policies (`onStoreError`)
 
-<!-- coderabbit-ai-generated:v1 -->
+`onStoreError` (alias: `failStrategy`) controls what happens when a standalone store fails or when both primary and fallback fail. Under `ResilientStore`, `'fail-closed'` bypasses fallback and rejects immediately on primary failure:
 
-<!-- coderabbit-ai-generated-section:v1:35b4559f02f6b293fe39fed5b349cd7a19560e7e5aa74eb750c509a56f29d021 -->
-
-When a standalone store fails or times out, `onStoreError` dictates recovery. With `ResilientStore`, `fail-closed` rejects primary failures before using the fallback; other policies apply if the fallback also fails:
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-| Policy | Behavior | HTTP Status | Response Header | Use Case |
+| Policy | Behavior | HTTP Status | Response Header | Typical Use Case |
 | :--- | :--- | :---: | :--- | :--- |
-| **`next(err)`** *(default)* | Error is forwarded to Express error pipeline (`next(storeError)`). | Application-defined | None | Strict environments requiring upstream alert handling. |
-| **`'fail-open'`** | Rate limiting is bypassed cleanly for this request (`next()`). | Downstream route | `RateLimit-Degraded: true` | Maximum service availability (prioritize uptime over strict quota). |
-| **`'fail-closed'`** | Rejects the request with dynamic `Retry-After`. | `HTTP 503 Service Unavailable` | `RateLimit-Degraded: true`<br/>`Retry-After: <cooldown>` | High-value or resource-intensive services where backend must be shielded. |
-| **Custom function** | `(err, req, res, next) => { ... }` | Custom | Custom | Custom error logging, Sentry/Datadog reporting, or fallback routing. |
+| `'error'` *(default)* | Invokes `next(err)` for Express error middleware | App-defined | `RateLimit-Degraded: true` | Explicit error handling / alerting |
+| `'fail-open'` | Allows request through (`next()`) | Downstream | `RateLimit-Degraded: true` | Availability over strict quota |
+| `'fail-closed'` | Rejects request with `Retry-After` (30s or breaker cooldown) | `503` | `RateLimit-Degraded: true`, `Retry-After` | Protecting expensive endpoints |
+| Custom function | Calls `(err, req, res, next)` | Custom | `RateLimit-Degraded: true` | Custom logging or fallback routing |
 
----
+## 4. Circuit Breaker (`CircuitBreaker`)
 
-## 4. Circuit Breaker Engine (`CircuitBreaker`)
-
-The `CircuitBreaker` implements a 3-state finite state machine protecting upstream stores from repeated hammering during persistent outages:
-
-### State Transitions
+`CircuitBreaker` prevents repeated socket timeouts against a degraded store using a three-state FSM:
 
 ```text
     ┌──────────────────────────────────────────────┐
@@ -114,28 +82,22 @@ The `CircuitBreaker` implements a 3-state finite state machine protecting upstre
 │ CLOSED │ ────────────────────────────────────> │ OPEN │
 └────────┘                                       └──────┘
     ▲                                               │
-    │ probe successful                              │ cooldown elapsed
+    │ successThreshold met                          │ resetTimeoutMs elapsed
     │                                               ▼
     │                                       ┌───────────┐
     └────────────────────────────────────── │ HALF_OPEN │
-              probe failed                  └───────────┘
+               probe failed                 └───────────┘
 ```
 
-1. **`CLOSED` (Normal Operation):** All requests route directly to the primary store.
-2. **`OPEN` (Tripped Outage):** If failures reach `failureThreshold` (default: 5), the breaker trips to `OPEN`. Primary store calls are immediately short-circuited without network overhead for `resetTimeoutMs` (default: 30,000ms).
-3. **`HALF_OPEN` (Canary Recovery):** Once the reset cooldown elapses, the breaker enters `HALF_OPEN`. It dispatches exactly **one single-flight canary probe** to the primary store:
-   - If the canary succeeds, the breaker resets to `CLOSED`.
-   - If the canary fails, the breaker re-trips to `OPEN` and restarts the cooldown timer.
-   - Any concurrent requests arriving while the canary probe is in-flight are diverted safely to the fallback store.
+1. **`CLOSED`**: Requests execute directly against the primary store. Failures reset when a call succeeds.
+2. **`OPEN`**: After `failureThreshold` consecutive failures (default: `5`), calls short-circuit immediately with `CircuitBreakerOpenError` for `resetTimeoutMs` (default: `10000` ms).
+3. **`HALF_OPEN`**: Once `resetTimeoutMs` elapses, the next incoming request executes as a **single-flight canary probe**. After `successThreshold` successful probes (default: `1`), the breaker resets to `CLOSED`; failure re-trips to `OPEN`. Concurrent requests arriving while a probe is in flight skip the primary store—`ResilientStore` routes them to `fallbackStore`, while standalone limiters pass `CircuitBreakerOpenError` to `onStoreError`.
 
-### Lazy Cooldown Evaluation
-Unlike naive circuit breakers that maintain persistent `setInterval` background timers, LimitForge evaluates state transitions lazily on-demand upon incoming requests. This ensures zero idle event-loop overhead and zero timer retention.
+State expiration is evaluated lazily on incoming calls rather than polling with background timers.
 
----
+## 5. Dual-Store Failover (`ResilientStore`)
 
-## 5. Dual-Store Fallback (`ResilientStore`)
-
-`ResilientStore` wraps a primary store (`RedisStore`) and a secondary fallback store (`MemoryStore`):
+`ResilientStore` pairs a distributed primary store (`RedisStore`) with a local fallback (`MemoryStore` by default):
 
 ```javascript
 import { createClient } from 'redis';
@@ -159,16 +121,21 @@ app.use(rateLimiter({
 }));
 ```
 
-### Observability During Degradation
-Whenever `ResilientStore` falls back to the secondary store:
-- HTTP response header `RateLimit-Degraded: true` is automatically attached.
-- `req.rateLimit` metadata object is exposed to downstream handlers:
-  ```javascript
-  app.get('/api/resource', (req, res) => {
-    if (req.rateLimit.degraded) {
-      console.warn(`Serving degraded request: primary failed with ${req.rateLimit.primaryError.message}`);
-    }
-    res.json({ data: 'resource' });
-  });
-  ```
-- Prometheus metric `smartrate_degraded_requests_total` is incremented.
+### Degraded Request Metadata
+
+When a request enters fallback or triggers an unhandled store failure:
+- `RateLimit-Degraded: true` is added to the response headers.
+- `limitforge_degraded_requests_total` is incremented when metrics are enabled.
+- `req.rateLimit` is populated for downstream handlers (`undefined` on normal requests):
+  - **Fallback used (`ResilientStore`)**: `{ degraded: true, fallbackUsed: true, store: 'fallback', primaryError: '<ErrorName>' }`
+  - **Store error policy (`onStoreError`)**: `{ degraded: true, storeError }` (the caught `Error` object)
+
+```javascript
+app.get('/api/resource', (req, res) => {
+  if (req.rateLimit?.degraded) {
+    const reason = req.rateLimit.storeError?.message || req.rateLimit.primaryError;
+    console.warn(`Serving degraded request: ${reason}`);
+  }
+  res.json({ data: 'resource' });
+});
+```

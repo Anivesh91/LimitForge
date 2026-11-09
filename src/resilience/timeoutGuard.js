@@ -3,7 +3,7 @@ import { StoreTimeoutError } from './errors.js';
 export async function withTimeout(operation, timeoutMs) {
   if (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new RangeError(
-      `SmartRate: 'timeoutMs' must be a positive number in milliseconds (received: ${timeoutMs}).`
+      `LimitForge: 'timeoutMs' must be a positive number in milliseconds (received: ${timeoutMs}).`
     );
   }
 

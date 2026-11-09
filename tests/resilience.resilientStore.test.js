@@ -12,9 +12,9 @@ import {
   StoreTimeoutError
 } from '../src/index.js';
 
-describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', () => {
+describe('Dual-Store Fallback & ResilientStore Engine', () => {
 
-  describe('1. ResilientStore Construction & Option Validation', () => {
+  describe('ResilientStore Construction & Option Validation', () => {
     it('initializes successfully with valid primaryStore and defaults fallbackStore to MemoryStore', () => {
       const primaryMock = { consume: async () => ({ allowed: true }) };
       const resilient = new ResilientStore({ primaryStore: primaryMock });
@@ -122,7 +122,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
     });
   });
 
-  describe('2. Primary Store Happy Path Operation', () => {
+  describe('Primary Store Happy Path Operation', () => {
     it('executes against primaryStore and returns non-degraded result without calling fallbackStore', async () => {
       let primaryCalled = 0;
       let fallbackCalled = 0;
@@ -172,7 +172,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
     });
   });
 
-  describe('3. Transparent Failover on Primary Error & Timeout', () => {
+  describe('Transparent Failover on Primary Error & Timeout', () => {
     it('fails over cleanly to fallbackStore when primaryStore throws an infrastructure error', async () => {
       let fallbackEventReceived = null;
       const primaryMock = {
@@ -230,7 +230,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
     });
   });
 
-  describe('4. Circuit Breaker Tripping & Zero Primary Hammering', () => {
+  describe('Circuit Breaker Tripping & Zero Primary Hammering', () => {
     it('trips circuit to OPEN after failureThreshold and completely bypasses primaryStore', async () => {
       let primaryAttempts = 0;
       const primaryMock = {
@@ -268,7 +268,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
     });
   });
 
-  describe('5. Local In-Memory Safe Quota Degradation', () => {
+  describe('Local In-Memory Safe Quota Degradation', () => {
     it('strictly enforces rate limits in fallback MemoryStore during primary outage', async () => {
       const primaryMock = {
         consume: async () => {
@@ -327,7 +327,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
     });
   });
 
-  describe('6. Seamless Canary Recovery (HALF_OPEN -> CLOSED)', () => {
+  describe('Seamless Canary Recovery (HALF_OPEN -> CLOSED)', () => {
     it('transfers traffic back to primaryStore once canary probe succeeds', async () => {
       let isRedisAlive = false;
       let primaryCalls = 0;
@@ -468,7 +468,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
     });
   });
 
-  describe('7. Double-Fault & Error Propagation', () => {
+  describe('Double-Fault & Error Propagation', () => {
     it('bubbles error up when both primaryStore and fallbackStore fail', async () => {
       const primaryMock = {
         consume: async () => {
@@ -493,7 +493,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
     });
   });
 
-  describe('8. Express Integration & Header Tagging', () => {
+  describe('Express Integration & Header Tagging', () => {
     it('preserves circuitBreaker: false when constructing fallbackStore resilience', () => {
       const limiter = rateLimiter({
         limit: 5,
@@ -670,7 +670,7 @@ describe('SmartRate v6 — Day 3: Dual-Store Fallback & ResilientStore Engine', 
     });
   });
 
-  describe('9. Cleanup & Snapshot Statistics', () => {
+  describe('Cleanup & Snapshot Statistics', () => {
     it('invokes cleanupExpiredRecords on both primary and fallback stores', () => {
       let primaryCleaned = false;
       let fallbackCleaned = false;

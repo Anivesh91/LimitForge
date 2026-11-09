@@ -9,9 +9,9 @@ import {
   CircuitBreakerOpenError
 } from '../src/index.js';
 
-describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
+describe('Store Circuit Breaker Engine', () => {
 
-  describe('1. CircuitBreaker Class Construction & Validation', () => {
+  describe('CircuitBreaker Class Construction & Validation', () => {
     it('initializes in CLOSED state with configured default options', () => {
       const cb = new CircuitBreaker();
       assert.equal(cb.getState(), CIRCUIT_STATE.CLOSED);
@@ -48,7 +48,7 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
     });
   });
 
-  describe('2. State Transitions & Single-Flight Canary Probe', () => {
+  describe('State Transitions & Single-Flight Canary Probe', () => {
     it('executes normally in CLOSED state and resets consecutive failure count on success', async () => {
       const cb = new CircuitBreaker({ failureThreshold: 3 });
 
@@ -247,7 +247,7 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
     });
   });
 
-  describe('3. rateLimiter Integration Option Validation', () => {
+  describe('rateLimiter Integration Option Validation', () => {
     it('throws TypeError when circuitBreaker option is neither boolean, object, nor CircuitBreaker instance', () => {
       assert.throws(() => rateLimiter({ limit: 5, windowMs: 60_000, circuitBreaker: 123 }), { name: 'TypeError' });
       assert.throws(() => rateLimiter({ limit: 5, windowMs: 60_000, circuitBreaker: 'yes' }), { name: 'TypeError' });
@@ -274,7 +274,7 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
     });
   });
 
-  describe('4. Express Integration: Unhealthy Store Shielding & Fail-Open / Fail-Closed', () => {
+  describe('Express Integration: Unhealthy Store Shielding & Fail-Open / Fail-Closed', () => {
     it('shields failing store once circuit trips, stopping calls to store.consume completely', async () => {
       let storeConsumeCalls = 0;
       const dyingStore = {
@@ -440,7 +440,7 @@ describe('SmartRate v6 — Day 2: Store Circuit Breaker Engine', () => {
     });
   });
 
-  describe('5. Precise Failure Classification & Dependency Isolation', () => {
+  describe('Precise Failure Classification & Dependency Isolation', () => {
     it('does NOT count rate-limit 429 quota exhaustion as a breaker failure', async () => {
       const app = express();
       const limiter = rateLimiter({

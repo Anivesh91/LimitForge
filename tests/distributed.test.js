@@ -74,7 +74,7 @@ function createAppInstance(limiterMiddleware) {
   return app;
 }
 
-describe('SmartRate v2 — Distributed Multi-Instance Verification (Fixed Window)', () => {
+describe('Distributed Multi-Instance Verification (Fixed Window)', () => {
 
   it('enforces a shared quota across two distinct Express application instances', async () => {
     const sharedRedisClient = createSharedRedisClient();
@@ -136,7 +136,7 @@ describe('SmartRate v2 — Distributed Multi-Instance Verification (Fixed Window
   });
 });
 
-describe('SmartRate v3 — Distributed Multi-Instance Verification (Sliding Window)', () => {
+describe('Distributed Multi-Instance Verification (Sliding Window)', () => {
 
   it('enforces a shared sliding window quota across two distinct Express application instances', async () => {
     const sharedRedisClient = createSharedRedisClient();

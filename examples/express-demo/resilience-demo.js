@@ -83,21 +83,20 @@ const resilientStore = new ResilientStore({
   resetTimeoutMs: 1200
 });
 
-// event listeners for observability
 resilientStore.on('stateChange', (evt) => {
-  console.log(`  ⚡ [Breaker Event] State changed: ${evt.from} -> ${evt.to} (reason: ${evt.reason || 'N/A'})`);
+  console.log(`  [breaker] stateChange ${evt.from} -> ${evt.to}`);
 });
 resilientStore.on('circuitOpen', () => {
-  console.log(`  🚨 [Breaker Event] Circuit OPEN! primaryStore bypassed for next ${resilientStore.circuitBreaker.resetTimeoutMs}ms.`);
+  console.log(`  [breaker] OPEN (bypassing primary for ${resilientStore.circuitBreaker.resetTimeoutMs}ms)`);
 });
 resilientStore.on('probe', () => {
-  console.log(`  🔬 [Breaker Event] HALF_OPEN: Dispatching single-flight canary probe to primaryStore...`);
+  console.log('  [breaker] HALF_OPEN: running canary probe');
 });
 resilientStore.on('circuitClose', () => {
-  console.log(`  🎉 [Breaker Event] Circuit CLOSED! Primary store verified healthy, traffic recovered.`);
+  console.log('  [breaker] CLOSED: primary store recovered');
 });
 resilientStore.on('fallback', (evt) => {
-  console.log(`  🛡️  [ResilientStore] Failover active: fallbackStore engaged (Error: ${evt.error.message})`);
+  console.log(`  [fallback] using local memory store (${evt.error.message})`);
 });
 
 const DEMO_LIMIT = 4;
@@ -128,8 +127,8 @@ app.get(
 
 app.get('/', (req, res) => {
   res.json({
-    title: 'LimitForge v6 — Production Resilience & Store Fault Tolerance Demo',
-    description: 'Demonstrates store timeout protection, circuit breaker, dual-store fallback, safe local degradation, and seamless recovery.',
+    title: 'LimitForge — Resilience & Store Fault Tolerance Demo',
+    description: 'Demonstrates timeout guard, circuit breaker, dual-store fallback, and canary recovery.',
     configuration: {
       primaryStore: 'SimulatedRedisStore',
       fallbackStore: 'MemoryStore',
@@ -151,12 +150,8 @@ app.get('/', (req, res) => {
 });
 
 const server = app.listen(PORT, async () => {
-  console.log(`\n=============================================================`);
-  console.log(`🛡️  LimitForge v6 — Production Resilience & Fault Tolerance Demo`);
-  console.log(`📡 Server listening on http://localhost:${PORT}`);
-  console.log(`⚙️  Store: ResilientStore (Primary: Redis, Fallback: MemoryStore)`);
-  console.log(`⚙️  CircuitBreaker: failureThreshold = 3, resetTimeout = 1200ms, timeoutGuard = 100ms`);
-  console.log(`=============================================================\n`);
+  console.log(`LimitForge resilience demo listening on http://localhost:${PORT}`);
+  console.log('Store: ResilientStore (threshold=3, reset=1200ms, timeout=100ms)\n');
 
   try {
     await runSimulation();
@@ -187,26 +182,25 @@ async function makeRequest(path) {
 async function runSimulation() {
   const assertions = [];
 
-  // stage 1 healthy primary redis operations
-  console.log(`--- [Stage 1: Healthy Primary Redis Operations (CLOSED)] ---`);
+  console.log('[1/6] Healthy primary store (CLOSED)');
   simulatedRedis.setHealthy(true);
 
   const resHealthy = await makeRequest('/api/resilient');
   console.log(
-    `  Request #1: HTTP ${resHealthy.status} | Store: ${resHealthy.body.circuitState} | Remaining: ${resHealthy.headers['ratelimit-remaining']} | Degraded: ${resHealthy.headers['ratelimit-degraded'] || 'false'}`
+    `  HTTP ${resHealthy.status} | breaker=${resHealthy.body.circuitState} | remaining=${resHealthy.headers['ratelimit-remaining']} | degraded=${resHealthy.headers['ratelimit-degraded'] || 'false'}`
   );
   assertions.push({
     name: 'Stage 1 Healthy',
     pass: resHealthy.status === 200 && resHealthy.headers['ratelimit-degraded'] === undefined
   });
 
-  console.log(`\n--- [Stage 2: Injecting Store Outage (Redis ECONNREFUSED)] ---`);
+  console.log('\n[2/6] Simulating Redis outage (ECONNREFUSED)');
   simulatedRedis.setHealthy(false);
 
   for (let i = 1; i <= 3; i++) {
     const resFail = await makeRequest('/api/resilient');
     console.log(
-      `  Failure Request #${i}: HTTP ${resFail.status} | Fallback Active | Degraded: ${resFail.headers['ratelimit-degraded']} | Breaker State: ${resFail.body.circuitState}`
+      `  failure #${i}: HTTP ${resFail.status} | degraded=${resFail.headers['ratelimit-degraded']} | breaker=${resFail.body.circuitState}`
     );
     assertions.push({
       name: `Stage 2 Outage Request #${i}`,
@@ -214,14 +208,13 @@ async function runSimulation() {
     });
   }
 
-  console.log(`\n--- [Stage 3: Circuit Breaker OPEN (Primary Network Calls Bypassed)] ---`);
+  console.log('\n[3/6] Circuit breaker OPEN (primary bypassed)');
   const initialCalls = simulatedRedis.calls;
-
   const resOpen = await makeRequest('/api/resilient');
   const callsDuringOpen = simulatedRedis.calls - initialCalls;
 
   console.log(
-    `  Request while OPEN: HTTP ${resOpen.status} | Breaker: ${resOpen.body.circuitState} | Degraded: ${resOpen.headers['ratelimit-degraded']} | Primary Calls Made: ${callsDuringOpen}`
+    `  HTTP ${resOpen.status} | breaker=${resOpen.body.circuitState} | degraded=${resOpen.headers['ratelimit-degraded']} | primaryCalls=${callsDuringOpen}`
   );
   assertions.push({
     name: 'Stage 3 Breaker OPEN Zero Hammering',
@@ -231,15 +224,14 @@ async function runSimulation() {
           callsDuringOpen === 0
   });
 
-  console.log(`\n--- [Stage 4: Safe Local Rate Limit Enforcement (Exhausting Memory Limit)] ---`);
-  // consume remaining tokens on fallback until blocked
+  console.log('\n[4/6] Exhausting local fallback quota');
   let blockedRes = null;
   for (let i = 0; i < 5; i++) {
     const r = await makeRequest('/api/resilient');
     if (r.status === 429) {
       blockedRes = r;
       console.log(
-        `  🛑 Local Quota Exhausted: HTTP 429 Too Many Requests | Retry-After: ${r.headers['retry-after']}s | Degraded: ${r.headers['ratelimit-degraded']}`
+        `  HTTP 429 | retry-after=${r.headers['retry-after']}s | degraded=${r.headers['ratelimit-degraded']}`
       );
       break;
     }
@@ -250,14 +242,14 @@ async function runSimulation() {
     pass: blockedRes !== null && blockedRes.status === 429 && blockedRes.headers['ratelimit-degraded'] === 'true'
   });
 
-  console.log(`\n--- [Stage 5: Healing Redis & Waiting 1.3s for Cooldown Expiry] ---`);
+  console.log('\n[5/6] Restoring primary store and waiting for cooldown (1.3s)');
   simulatedRedis.setHealthy(true);
   await new Promise((resolve) => setTimeout(resolve, 1300));
 
-  console.log(`--- [Stage 6: Dispatching Canary Probe (HALF_OPEN -> CLOSED)] ---`);
+  console.log('[6/6] Running canary probe (HALF_OPEN -> CLOSED)');
   const resRecovered = await makeRequest('/api/resilient');
   console.log(
-    `  Canary Request: HTTP ${resRecovered.status} | Breaker: ${resRecovered.body.circuitState} | Degraded: ${resRecovered.headers['ratelimit-degraded'] || 'false'}`
+    `  HTTP ${resRecovered.status} | breaker=${resRecovered.body.circuitState} | degraded=${resRecovered.headers['ratelimit-degraded'] || 'false'}`
   );
 
   assertions.push({
@@ -267,41 +259,30 @@ async function runSimulation() {
           resRecovered.headers['ratelimit-degraded'] === undefined
   });
 
-  // verification summary
-  console.log(`\n=============================================================`);
+  console.log('\nSummary:');
   let allPassed = true;
   for (const a of assertions) {
     if (a.pass) {
-      console.log(`  ✅ ${a.name}: PASSED`);
+      console.log(`  PASS: ${a.name}`);
     } else {
-      console.error(`  ❌ ${a.name}: FAILED`);
+      console.error(`  FAIL: ${a.name}`);
       allPassed = false;
     }
   }
 
   if (!allPassed) {
-    console.error(`\n❌ Simulation failed assertions.`);
     server.close(() => process.exit(1));
     return;
   }
 
-  console.log(`\n🎉 All Resilience Assertions Verified Successfully!`);
-  console.log(`=============================================================\n`);
-
   if (process.env.DEMO_AUTOCLOSE === 'true') {
-    server.close(() => {
-      console.log('Automated demo run complete.');
-      process.exit(0);
-    });
+    server.close(() => process.exit(0));
   }
 }
 
 function handleShutdown(signal) {
-  console.log(`\n[${signal}] Shutting down server gracefully...`);
-  server.close(() => {
-    console.log('Server shut down cleanly.');
-    process.exit(0);
-  });
+  console.log(`\n[${signal}] Shutting down...`);
+  server.close(() => process.exit(0));
 }
 
 process.on('SIGINT', () => handleShutdown('SIGINT'));

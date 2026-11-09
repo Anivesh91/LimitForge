@@ -1,9 +1,9 @@
 apiVersion: 1
 
 providers:
-  - name: 'SmartRate'
+  - name: 'LimitForge'
     orgId: 1
-    folder: 'SmartRate'
+    folder: 'LimitForge'
     type: file
     disableDeletion: false
     updateIntervalSeconds: 10

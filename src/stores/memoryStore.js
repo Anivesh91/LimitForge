@@ -8,12 +8,49 @@ function createCleanupTimer(storeRef, intervalMs) {
   return timer;
 }
 
+function isRecordExpired(record, now, cleanupIntervalMs) {
+  if (Array.isArray(record.timestamps)) {
+    const cutoff = now - record.windowMs;
+    while (record.timestamps.length > 0 && record.timestamps[0] <= cutoff) {
+      record.timestamps.shift();
+    }
+    return record.timestamps.length === 0;
+  }
+
+  if (record.algorithm === 'token-bucket') {
+    const elapsed = now - record.lastRefillTimestamp;
+    const refillPerMs = (record.refillRate || 1) / (record.refillIntervalMs || 1000);
+    const timeToFullMs = Math.max(0, (record.capacity - record.tokens) / refillPerMs);
+    return elapsed >= timeToFullMs + cleanupIntervalMs;
+  }
+
+  if (record.windowStart !== undefined) {
+    return now - record.windowStart >= record.windowMs;
+  }
+
+  return false;
+}
+
 export class MemoryStore {
   constructor(options = {}) {
     this.store = new Map();
     this.cleanupIntervalMs = options.cleanupIntervalMs || 60_000;
     this.cleanupInterval = null;
     this._ensureCleanupTimer();
+
+    this._algorithms = {
+      'fixed-window': (params) => this._consumeFixedWindow(params),
+      'sliding-window': (params) => this._consumeSlidingWindow(params),
+      'token-bucket': ({ key, limit, windowMs, capacity, refillRate, refillIntervalMs, cost, now }) =>
+        this._consumeTokenBucket({
+          key,
+          capacity: capacity ?? limit,
+          refillRate: refillRate ?? (limit && windowMs ? (limit * refillIntervalMs) / windowMs : 1),
+          refillIntervalMs,
+          cost,
+          now
+        })
+    };
   }
 
   consume({
@@ -27,24 +64,8 @@ export class MemoryStore {
     cost = 1,
     now = Date.now()
   }) {
-    if (algorithm === 'sliding-window') {
-      return this._consumeSlidingWindow({ key, limit, windowMs, now });
-    }
-
-    if (algorithm === 'token-bucket') {
-      const resolvedCapacity = capacity ?? limit;
-      const resolvedRefillRate = refillRate ?? (limit && windowMs ? (limit * refillIntervalMs) / windowMs : 1);
-      return this._consumeTokenBucket({
-        key,
-        capacity: resolvedCapacity,
-        refillRate: resolvedRefillRate,
-        refillIntervalMs,
-        cost,
-        now
-      });
-    }
-
-    return this._consumeFixedWindow({ key, limit, windowMs, now });
+    const handler = this._algorithms[algorithm] || this._algorithms['fixed-window'];
+    return handler({ key, limit, windowMs, capacity, refillRate, refillIntervalMs, cost, now });
   }
 
   _consumeFixedWindow({ key, limit, windowMs, now }) {
@@ -60,10 +81,9 @@ export class MemoryStore {
       };
     }
 
-    // Cleanup must use the most recently observed policy for this window.
+    // Track the latest observed window duration for cleanup sweeps.
     record.windowMs = windowMs;
-    const elapsed = now - record.windowStart;
-    if (elapsed >= windowMs) {
+    if (now - record.windowStart >= windowMs) {
       record.count = 1;
       record.windowStart = now;
       return {
@@ -114,21 +134,17 @@ export class MemoryStore {
     if (currentCount < limit) {
       record.timestamps.push(now);
       const newCount = currentCount + 1;
-      const remaining = Math.max(0, limit - newCount);
       const oldest = record.timestamps[0];
-      const reset = Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
-
       return {
         allowed: true,
         count: newCount,
-        remaining,
-        reset
+        remaining: Math.max(0, limit - newCount),
+        reset: Math.max(1, Math.ceil((oldest + windowMs - now) / 1000))
       };
     }
 
     const oldest = record.timestamps[0];
     const reset = Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
-
     return {
       allowed: false,
       count: currentCount,
@@ -159,8 +175,7 @@ export class MemoryStore {
 
       const elapsed = Math.max(0, now - record.lastRefillTimestamp);
       if (elapsed > 0) {
-        const tokensToAdd = elapsed * refillPerMs;
-        record.tokens = Math.min(record.capacity, record.tokens + tokensToAdd);
+        record.tokens = Math.min(record.capacity, record.tokens + elapsed * refillPerMs);
         record.lastRefillTimestamp = now;
       }
     }
@@ -169,20 +184,16 @@ export class MemoryStore {
       record.tokens -= cost;
       const remaining = Math.max(0, Math.floor(record.tokens));
       const timeToFullMs = Math.max(0, (record.capacity - record.tokens) / refillPerMs);
-      const reset = Math.max(1, Math.ceil(timeToFullMs / 1000));
-
       return {
         allowed: true,
         count: Math.max(0, record.capacity - remaining),
         remaining,
-        reset
+        reset: Math.max(1, Math.ceil(timeToFullMs / 1000))
       };
     }
 
-    const neededTokens = cost - record.tokens;
-    const waitMs = neededTokens / refillPerMs;
+    const waitMs = (cost - record.tokens) / refillPerMs;
     const retryAfter = Math.max(1, Math.ceil(waitMs / 1000));
-
     return {
       allowed: false,
       count: record.capacity,
@@ -194,33 +205,12 @@ export class MemoryStore {
 
   cleanupExpiredRecords(now = Date.now()) {
     let removed = 0;
-
     for (const [key, record] of this.store.entries()) {
-      if (Array.isArray(record.timestamps)) {
-        const cutoff = now - record.windowMs;
-        while (record.timestamps.length > 0 && record.timestamps[0] <= cutoff) {
-          record.timestamps.shift();
-        }
-        if (record.timestamps.length === 0) {
-          this.store.delete(key);
-          removed++;
-        }
-      } else if (record.algorithm === 'token-bucket') {
-        const elapsed = now - record.lastRefillTimestamp;
-        const refillPerMs = (record.refillRate || 1) / (record.refillIntervalMs || 1000);
-        const timeToFullMs = Math.max(0, (record.capacity - record.tokens) / refillPerMs);
-        if (elapsed >= timeToFullMs + this.cleanupIntervalMs) {
-          this.store.delete(key);
-          removed++;
-        }
-      } else if (record.windowStart !== undefined) {
-        if (now - record.windowStart >= record.windowMs) {
-          this.store.delete(key);
-          removed++;
-        }
+      if (isRecordExpired(record, now, this.cleanupIntervalMs)) {
+        this.store.delete(key);
+        removed++;
       }
     }
-
     return removed;
   }
 

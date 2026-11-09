@@ -22,7 +22,7 @@
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
       "id": 1,
-      "title": "SmartRate — Executive Health Overview",
+      "title": "LimitForge — Executive Health Overview",
       "type": "row"
     },
     {
@@ -72,7 +72,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "editorMode": "code",
-          "expr": "sum by (outcome) (rate(smartrate_requests_total[1m]))",
+          "expr": "sum by (outcome) (rate(limitforge_requests_total[1m]))",
           "legendFormat": "Requests ({{outcome}})",
           "range": true,
           "refId": "A"
@@ -113,7 +113,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "editorMode": "code",
-          "expr": "(sum(rate(smartrate_requests_total{outcome=\"blocked\"}[5m])) / sum(rate(smartrate_requests_total[5m]))) * 100",
+          "expr": "(sum(rate(limitforge_requests_total{outcome=\"blocked\"}[5m])) / sum(rate(limitforge_requests_total[5m]))) * 100",
           "legendFormat": "Block Rate %",
           "range": true,
           "refId": "A"
@@ -163,7 +163,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "editorMode": "code",
-          "expr": "smartrate_circuit_breaker_state",
+          "expr": "limitforge_circuit_breaker_state",
           "legendFormat": "Breaker State",
           "range": true,
           "refId": "A"
@@ -212,7 +212,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.50, sum by (le, store) (rate(smartrate_store_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le, store) (rate(limitforge_store_duration_seconds_bucket[5m])))",
           "legendFormat": "p50 ({{store}})",
           "range": true,
           "refId": "A"
@@ -220,7 +220,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, store) (rate(smartrate_store_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, store) (rate(limitforge_store_duration_seconds_bucket[5m])))",
           "legendFormat": "p95 ({{store}})",
           "range": true,
           "refId": "B"
@@ -228,7 +228,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum by (le, store) (rate(smartrate_store_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le, store) (rate(limitforge_store_duration_seconds_bucket[5m])))",
           "legendFormat": "p99 ({{store}})",
           "range": true,
           "refId": "C"
@@ -270,7 +270,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "editorMode": "code",
-          "expr": "sum by (error_type, store) (rate(smartrate_store_errors_total[1m]))",
+          "expr": "sum by (error_type, store) (rate(limitforge_store_errors_total[1m]))",
           "legendFormat": "Error: {{error_type}} ({{store}})",
           "range": true,
           "refId": "A"
@@ -278,7 +278,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "editorMode": "code",
-          "expr": "sum by (reason) (rate(smartrate_degraded_requests_total[1m]))",
+          "expr": "sum by (reason) (rate(limitforge_degraded_requests_total[1m]))",
           "legendFormat": "Degraded: {{reason}}",
           "range": true,
           "refId": "B"
@@ -324,7 +324,7 @@
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "editorMode": "code",
-          "expr": "sum by (normalized_route, method, outcome) (increase(smartrate_requests_total[1h]))",
+          "expr": "sum by (normalized_route, method, outcome) (increase(limitforge_requests_total[1h]))",
           "format": "table",
           "instant": true,
           "range": false,
@@ -338,13 +338,13 @@
   "refresh": "10s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["smartrate", "rate-limiting", "observability", "resilience"],
+  "tags": ["limitforge", "rate-limiting", "observability", "resilience"],
   "time": { "from": "now-1h", "to": "now" },
   "timepicker": {
     "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]
   },
   "timezone": "browser",
-  "title": "SmartRate — Observability & Health",
-  "uid": "smartrate-v7-overview",
+  "title": "LimitForge — Observability & Health",
+  "uid": "limitforge-overview",
   "version": 1
 }

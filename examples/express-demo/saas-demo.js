@@ -8,21 +8,18 @@ const PORT = Number(process.env.SAAS_DEMO_PORT || 3005);
 app.set('trust proxy', true);
 app.use(express.json());
 
-// in memory store for demonstration
 const memoryStore = new MemoryStore();
 
-// simulated customer database
 const API_KEY_REGISTRY = {
-  'ak_free_123': { name: 'Acme Starter', tier: 'free' },
-  'ak_pro_456': { name: 'Beta Scale', tier: 'pro' },
-  'ak_ent_789': { name: 'Global Enterprise', tier: 'enterprise' }
+  ak_free_123: { name: 'Acme Starter', tier: 'free' },
+  ak_pro_456: { name: 'Beta Scale', tier: 'pro' },
+  ak_ent_789: { name: 'Global Enterprise', tier: 'enterprise' }
 };
 
-// tier configurations
 const TIER_POLICIES = {
-  free: { capacity: 5, refillRate: 1 }, // 5 burst 1 token sec
-  pro: { capacity: 20, refillRate: 5 }, // 20 burst 5 tokens sec
-  enterprise: { capacity: 100, refillRate: 25 } // 100 burst 25 tokens sec
+  free: { capacity: 5, refillRate: 1 },
+  pro: { capacity: 20, refillRate: 5 },
+  enterprise: { capacity: 100, refillRate: 25 }
 };
 
 app.use((req, res, next) => {
@@ -40,25 +37,10 @@ app.use((req, res, next) => {
 const saasLimiter = rateLimiter({
   store: memoryStore,
   algorithm: 'token-bucket',
-
   keyGenerator: (req) => req.apiKey,
-
-  capacity: (req) => {
-    const tier = req.customer?.tier || 'free';
-    return TIER_POLICIES[tier].capacity;
-  },
-
-  refillRate: (req) => {
-    const tier = req.customer?.tier || 'free';
-    return TIER_POLICIES[tier].refillRate;
-  },
-
-  cost: (req) => {
-    if (req.path.includes('/export') || req.body?.heavy === true) {
-      return 5;
-    }
-    return 1; // standard read consumes 1 token
-  }
+  capacity: (req) => TIER_POLICIES[req.customer?.tier || 'free'].capacity,
+  refillRate: (req) => TIER_POLICIES[req.customer?.tier || 'free'].refillRate,
+  cost: (req) => (req.path.includes('/export') || req.body?.heavy === true ? 5 : 1)
 });
 
 app.use('/api', saasLimiter);
@@ -74,7 +56,6 @@ app.get('/api/data', (req, res) => {
   });
 });
 
-postExportHandler:
 app.post('/api/export', (req, res) => {
   res.json({
     success: true,
@@ -88,16 +69,16 @@ app.post('/api/export', (req, res) => {
 
 app.get('/', (req, res) => {
   res.json({
-    title: 'LimitForge v4 — SaaS Multi-Tier & Dynamic Policy Demo',
+    title: 'LimitForge — SaaS Multi-Tier & Dynamic Policy Demo',
     tiers: {
       free: { apiKey: 'ak_free_123', ...TIER_POLICIES.free },
       pro: { apiKey: 'ak_pro_456', ...TIER_POLICIES.pro },
       enterprise: { apiKey: 'ak_ent_789', ...TIER_POLICIES.enterprise }
     },
     sampleRequests: [
-      'curl -H "x-api-key: ak_free_123" http://localhost:' + PORT + '/api/data',
-      'curl -H "x-api-key: ak_pro_456" http://localhost:' + PORT + '/api/data',
-      'curl -X POST -H "x-api-key: ak_ent_789" http://localhost:' + PORT + '/api/export'
+      `curl -H "x-api-key: ak_free_123" http://localhost:${PORT}/api/data`,
+      `curl -H "x-api-key: ak_pro_456" http://localhost:${PORT}/api/data`,
+      `curl -X POST -H "x-api-key: ak_ent_789" http://localhost:${PORT}/api/export`
     ]
   });
 });
@@ -107,22 +88,16 @@ let server;
 export function startSaasDemoServer(port = PORT) {
   return new Promise((resolve) => {
     server = app.listen(port, () => {
-      console.log(`\n================================================================`);
-      console.log(`LimitForge v4 SaaS Multi-Tier Demo running at http://localhost:${port}`);
-      console.log(`================================================================`);
-      console.log(`[Free Tier]       x-api-key: ak_free_123  (Capacity: 5,  Refill: 1/sec)`);
-      console.log(`[Pro Tier]        x-api-key: ak_pro_456   (Capacity: 20, Refill: 5/sec)`);
-      console.log(`[Enterprise Tier] x-api-key: ak_ent_789   (Capacity: 100, Refill: 25/sec)`);
-      console.log(`----------------------------------------------------------------`);
-      console.log(`[Standard Read]   GET  /api/data   (Cost: 1 token)`);
-      console.log(`[Heavy Export]    POST /api/export (Cost: 5 tokens)`);
-      console.log(`================================================================\n`);
+      console.log(`LimitForge SaaS demo listening on http://localhost:${port}`);
+      console.log('  Free:       x-api-key: ak_free_123 (cap 5, refill 1/s)');
+      console.log('  Pro:        x-api-key: ak_pro_456  (cap 20, refill 5/s)');
+      console.log('  Enterprise: x-api-key: ak_ent_789  (cap 100, refill 25/s)');
+      console.log('  Routes:     GET /api/data (cost 1), POST /api/export (cost 5)');
       resolve(server);
     });
   });
 }
 
-// auto start server if executed directly from cli
 if (process.argv[1] && process.argv[1].endsWith('saas-demo.js')) {
   startSaasDemoServer();
 }

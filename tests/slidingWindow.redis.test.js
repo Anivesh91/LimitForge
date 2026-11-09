@@ -78,13 +78,13 @@ function createTestApp() {
   return app;
 }
 
-describe('SmartRate v3 — Redis Sliding Window Tests', () => {
+describe('Redis Sliding Window Tests', () => {
 
   it('allows initial requests and enforces quota boundary (1..N allowed, N+1 blocked)', async () => {
     const redisClient = createSimulatedRedisClient();
     const redisStore = new RedisStore({ client: redisClient });
 
-    const key = 'smartrate:sliding-window:GET:/test:10.0.0.1';
+    const key = 'limitforge:sliding-window:GET:/test:10.0.0.1';
     const limit = 3;
     const windowMs = 60_000;
     const t0 = 100_000;
@@ -116,7 +116,7 @@ describe('SmartRate v3 — Redis Sliding Window Tests', () => {
     const redisClient = createSimulatedRedisClient();
     const redisStore = new RedisStore({ client: redisClient });
 
-    const key = 'smartrate:sliding-window:GET:/cutoff:10.0.0.2';
+    const key = 'limitforge:sliding-window:GET:/cutoff:10.0.0.2';
     const limit = 2;
     const windowMs = 10_000;
 
@@ -137,7 +137,7 @@ describe('SmartRate v3 — Redis Sliding Window Tests', () => {
     const redisClient = createSimulatedRedisClient();
     const redisStore = new RedisStore({ client: redisClient });
 
-    const key = 'smartrate:sliding-window:POST:/concurrent:10.0.0.3';
+    const key = 'limitforge:sliding-window:POST:/concurrent:10.0.0.3';
     const limit = 5;
     const windowMs = 60_000;
     const sameTimestamp = 1727181000000;

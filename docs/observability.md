@@ -1,16 +1,10 @@
 # Observability & Monitoring
 
-LimitForge includes native, production-grade observability covering Prometheus metrics exposition, Grafana dashboards, Alertmanager rules, and OpenTelemetry distributed tracing.
+LimitForge includes zero-dependency Prometheus exposition (`v0.0.4`), cardinality-bounded route sanitization, OpenTelemetry span enrichment, and sample Grafana/Alertmanager definitions.
 
----
+## 1. Native Prometheus Exporter (`/metrics`)
 
-## 1. Zero-Dependency Native Prometheus Exposition (`/metrics`)
-
-LimitForge serializes metrics strictly following the **Prometheus Text Exposition Format (v0.0.4)** without requiring third-party libraries like `prom-client`.
-
-### Setup
-
-Mount the exporter on any Express application:
+Mount the exporter on any Express app without external dependencies such as `prom-client`:
 
 ```javascript
 import express from 'express';
@@ -27,125 +21,78 @@ app.get('/metrics', createPrometheusExporter());
 app.listen(3000);
 ```
 
-<!-- coderabbit-ai-generated:v1 -->
+Setting `metrics: true` records to the shared `defaultMetricsCollector` read by `createPrometheusExporter()`. For isolated per-app collection, pass a custom `MetricsCollector` as `metricsCollector` to `rateLimiter()` and to `createPrometheusExporter(collector)` (also accepts `{ collector }` or `{ metricsCollector }`, with `collector` taking precedence).
 
-<!-- coderabbit-ai-generated-section:v1:c64de25533acf908a37a7a1a7e5a5cf9ba6147b69fe88b3411b2a046cfabb81e -->
-
-`metrics: true` records to the shared default collector used by `createPrometheusExporter()`. For an independent collector, pass the same instance as `metricsCollector` to the limiter and to `createPrometheusExporter(collector)`. The exporter also accepts `{ collector }` or `{ metricsCollector: collector }`; if both options are provided, `collector` takes precedence.
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-When scraped by Prometheus (`GET /metrics`), LimitForge returns `Content-Type: text/plain; version=0.0.4; charset=utf-8`:
+`GET /metrics` responds with `Content-Type: text/plain; version=0.0.4; charset=utf-8`:
 
 ```text
-# HELP smartrate_requests_total Total number of rate limiter requests evaluated.
-# TYPE smartrate_requests_total counter
-smartrate_requests_total{algorithm="sliding-window",method="GET",normalized_route="/api/users/:id",outcome="allowed",store="redis"} 142
-smartrate_requests_total{algorithm="sliding-window",method="GET",normalized_route="/api/users/:id",outcome="blocked",store="redis"} 8
+# HELP limitforge_requests_total Total number of rate limiter requests evaluated.
+# TYPE limitforge_requests_total counter
+limitforge_requests_total{algorithm="sliding-window",method="GET",normalized_route="/api/users/:id",outcome="allowed",store="redis"} 142
+limitforge_requests_total{algorithm="sliding-window",method="GET",normalized_route="/api/users/:id",outcome="blocked",store="redis"} 8
 
-# HELP smartrate_store_duration_seconds Latency of rate limiter store operations in seconds.
-# TYPE smartrate_store_duration_seconds histogram
-smartrate_store_duration_seconds_bucket{le="0.001",store="redis"} 138
-smartrate_store_duration_seconds_bucket{le="0.005",store="redis"} 148
-smartrate_store_duration_seconds_bucket{le="+Inf",store="redis"} 150
-smartrate_store_duration_seconds_sum{store="redis"} 0.0892
-smartrate_store_duration_seconds_count{store="redis"} 150
+# HELP limitforge_store_duration_seconds Duration of rate limiter store operations in seconds.
+# TYPE limitforge_store_duration_seconds histogram
+limitforge_store_duration_seconds_bucket{le="0.001",store="redis"} 138
+limitforge_store_duration_seconds_bucket{le="0.005",store="redis"} 148
+limitforge_store_duration_seconds_bucket{le="+Inf",store="redis"} 150
+limitforge_store_duration_seconds_sum{store="redis"} 0.0892
+limitforge_store_duration_seconds_count{store="redis"} 150
 
-# HELP smartrate_circuit_breaker_state Current state of the store circuit breaker (0=CLOSED, 1=OPEN, 2=HALF_OPEN).
-# TYPE smartrate_circuit_breaker_state gauge
-smartrate_circuit_breaker_state{breaker="default"} 0
+# HELP limitforge_circuit_breaker_state Current state of the rate limiter circuit breaker (0=CLOSED, 1=HALF_OPEN, 2=OPEN).
+# TYPE limitforge_circuit_breaker_state gauge
+limitforge_circuit_breaker_state{breaker="default"} 0
 ```
 
----
+## 2. Metrics Catalog
 
-## 2. Metric Schemas & Telemetry Namespace
-
-> **Note on Telemetry Naming:**  
-> LimitForge uses `smartrate_*` as the default metric event namespace. This maintains seamless drop-in compatibility with pre-built Grafana dashboards, Alertmanager rules, and existing Prometheus alerting pipelines.
-
-### Metrics Catalog
+All built-in middleware and cardinality diagnostics use the `limitforge_*` metric prefix:
 
 | Metric Name | Type | Labels | Description |
 | :--- | :---: | :--- | :--- |
-| **`smartrate_requests_total`** | Counter | `algorithm`, `method`, `normalized_route`, `outcome`, `store` | Total evaluated requests partitioned by outcome (`allowed` vs `blocked`). |
-| **`smartrate_store_duration_seconds`** | Histogram | `store`, `le` | Store execution latency in seconds with 11 calibrated microsecond-to-second buckets. |
-| **`smartrate_store_errors_total`** | Counter | `store` | Number of store execution failures or timeout errors. |
-| **`smartrate_circuit_breaker_state`** | Gauge | `breaker` | Instantaneous circuit breaker state (`0` = CLOSED, `1` = OPEN, `2` = HALF_OPEN). |
-| **`smartrate_degraded_requests_total`** | Counter | *None* | Number of requests served under fallback or degraded store mode. |
+| `limitforge_requests_total` | Counter | `algorithm`, `method`, `normalized_route`, `outcome`, `store` | Total evaluated requests (`allowed` / `blocked`) |
+| `limitforge_store_duration_seconds` | Histogram | `store`, `le` | Store operation duration in seconds (11 default buckets: `0.0005`s–`1.0`s) |
+| `limitforge_store_errors_total` | Counter | `store`, `error_type` | Store failures/timeouts (`timeout`, `circuit_open`, `econnrefused`, `store_error`) |
+| `limitforge_circuit_breaker_state` | Gauge | `breaker` | Circuit breaker state (`0`=CLOSED, `1`=HALF_OPEN, `2`=OPEN) |
+| `limitforge_degraded_requests_total` | Counter | `reason` | Requests served under degraded or fallback paths |
+| `limitforge_metric_updates_dropped_total` | Counter | `metric_type`, `metric_name` | Gauge label updates dropped once `maxSeries` is reached |
+| `limitforge_overflow_requests_allowed_total` | Counter | *None* | Allowed requests folded into the request overflow series |
+| `limitforge_overflow_requests_blocked_total` | Counter | *None* | Blocked requests folded into the request overflow series |
+| `limitforge_overflow_requests_other_total` | Counter | *None* | Other request outcomes folded into the request overflow series |
 
----
+### Custom `MetricsCollector` API
+
+```javascript
+import { MetricsCollector } from 'limitforge';
+
+const collector = new MetricsCollector({ maxSeries: 1000 });
+collector.recordStoreDuration(0.0042, { store: 'redis' }); // duration in seconds
+collector.recordCircuitBreakerState('OPEN', { breaker: 'main' });
+```
 
 ## 3. Cardinality Guard & Route Sanitization
 
-Uncontrolled label cardinality is the leading cause of memory exhaustion in Prometheus TSDB. LimitForge enforces strict label hygiene:
+To protect Prometheus TSDB and Node heap memory under arbitrary URL scans or dynamic path traffic:
 
-1. **Client Identifiers Excluded**: User IDs, API keys, and client IPs are **never** attached to Prometheus labels.
-2. **Dynamic Route Sanitization**: Dynamic URL segments are automatically collapsed into standard `:id` route parameters:
-   - `/users/42` $\to$ `/users/:id`
-   - `/orders/550e8400-e29b-41d4-a716-446655440000` $\to$ `/orders/:id` (UUID)
-   - `/items/01ARZ3NDEKTSV4RRFFQ69G5FAV` $\to$ `/items/:id` (ULID)
-3. **Hard Series Bound (`maxSeries`)**:
-   `MetricsCollector` enforces an in-process maximum series limit (default: 1,000 series per metric). If arbitrary random paths are flooded (e.g., fuzzing attacks), excess paths aggregate into a designated `_overflow` metric bucket, preventing Node.js heap leaks.
+1. **No Client Identity Labels**: User IDs, API keys, and IP addresses are excluded from Prometheus labels.
+2. **Route Parameter Sanitization**: Dynamic URL segments collapse to `:id` (integers, UUIDs, ULIDs, CUIDs, and long hex tokens >=16 chars). Matched Express routes prefer `req.baseUrl + req.route.path` directly.
+3. **Bounded Series (`maxSeries`)**: `MetricsCollector` caps each metric at `1000` series by default:
+   - **Counters & Histograms**: Reserve 1 slot (`normalized_route="_overflow"`, `limitforge_overflow="true"`) once series reach `maxSeries - 1`. With `maxSeries: 1`, all observations land in `_overflow`; overflow histograms keep the bucket bounds of the first overflow observation while retaining exact `count` and `sum`. Original per-label filters exclude `_overflow`.
+   - **Global Overflow Outcomes**: `limitforge_overflow_requests_{allowed,blocked,other}_total` retain global outcome totals for requests aggregated into `_overflow`. Add these to filtered `limitforge_requests_total{outcome="..."}` queries for cluster totals; do not add them to unfiltered `limitforge_requests_total` totals (which already count `_overflow`).
+   - **Gauges**: New label sets past `maxSeries` are dropped (existing series still update) and counted via `limitforge_metric_updates_dropped_total`.
 
-<!-- coderabbit-ai-generated:v1 -->
+## 4. OpenTelemetry Tracing (`OpenTelemetryBridge`)
 
-<!-- coderabbit-ai-generated-section:v1:15a8a16d2420dadb2d4c8354edba08bae350b8cf3d52d4ac98df74fa530b912e -->
+`OpenTelemetryBridge` detects active spans via custom `getSpan(req)`, `req.span` / `req.telemetrySpan`, or global `@opentelemetry/api` `trace.getActiveSpan()`, working with or without `@opentelemetry/api` installed. When given a `tracer`, middleware creates a `limitforge.consume` child span and ends it in `finally`.
 
-<!-- coderabbit-ai-generated:v1 -->
+On every evaluation, active spans receive both standard `ratelimit.*` attributes (`ratelimit.allowed`, `ratelimit.remaining`, `ratelimit.reset`, `ratelimit.algorithm`, `ratelimit.store`, `ratelimit.degraded`, plus `ratelimit.circuit_state` when reported) and `limitforge.*` attributes (`limitforge.outcome`, `limitforge.algorithm`, `limitforge.route`, `limitforge.store`, `limitforge.remaining`, `limitforge.reset`, `limitforge.degraded`).
 
-<!-- coderabbit-ai-generated-section:v1:26fc180950687a73cc631b93e0f9a75cd5efd6bcb15de6adb39758a6db53aedf -->
-
-Each counter and histogram reserves one series for overflow. The aggregate has `normalized_route="_overflow"` and `limitforge_overflow="true"`; original route, outcome, method, store, and other labels are not retained in that series. Queries filtered by those labels do not include overflow counts. With `maxSeries: 1`, all counter increments and histogram observations aggregate there. An overflow histogram uses the bucket boundaries of its first observation; count and sum include all overflow observations.
-
-Gauge values are not generally additive. When the gauge series limit is reached, updates for new label combinations are dropped and counted in `limitforge_metric_updates_dropped_total` with `metric_type="gauge"` and `metric_name` labels; existing series continue updating. This diagnostic counter is also subject to the counter overflow rule.
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- /coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:6e1fd6630dc00b7cd69bc329102d5f65f4e80bdeb7e842f2f3556a3d2cae0d60 -->
-
-For request counter overflow, `limitforge_overflow_requests_allowed_total`, `limitforge_overflow_requests_blocked_total`, and `limitforge_overflow_requests_other_total` preserve global outcome totals even when `maxSeries` is 1. Add an overflow outcome counter to the corresponding filtered `smartrate_requests_total` query for a global total. These counters are already included in the unfiltered `smartrate_requests_total` total, so adding them to that total would double-count. Per-route overflow outcomes cannot be recovered.
-
-<!-- /coderabbit-ai-generated:v1 -->
-
----
-
-## 4. OpenTelemetry Distributed Tracing
-
-LimitForge includes an `OpenTelemetryBridge` that automatically extracts active request spans using duck typing. It functions with or without `@opentelemetry/api` installed in your project.
-
-### Active Span Enrichment
-
-On every request, the active span is enriched with both standard `ratelimit.*` semantic conventions and backward-compatible `smartrate.*` attributes:
-
-```typescript
-// Standard Semantic Conventions
-span.setAttribute('ratelimit.allowed', true);
-span.setAttribute('ratelimit.remaining', 49);
-span.setAttribute('ratelimit.reset', 60);
-span.setAttribute('ratelimit.algorithm', 'token-bucket');
-span.setAttribute('ratelimit.store', 'redis');
-span.setAttribute('ratelimit.degraded', false);
-
-// Telemetry Attributes
-span.setAttribute('smartrate.outcome', 'allowed');
-span.setAttribute('smartrate.route', '/api/users/:id');
-```
-
-When a request is blocked (HTTP 429), a `smartrate.rate_limit_exceeded` span event is added with `retry_after`. When a store fails, an exception is recorded on the span alongside `ratelimit.store_error: true`.
-
----
+- **Blocked requests (`HTTP 429`)**: Adds a `limitforge.rate_limit_exceeded` event with `ratelimit.retry_after`, `limitforge.retry_after`, and `limitforge.route`.
+- **Store errors / fallback**: Calls `span.recordException(err)`, sets `ratelimit.store_error: true` and `limitforge.store_error: true`, and records a `limitforge.store_error` event.
 
 ## 5. Grafana Dashboard & Alertmanager Assets
 
-LimitForge provides out-of-the-box infrastructure monitoring configurations in the repository's `assets/` directory:
+- **Grafana Dashboard** (`assets/dashboards/limitforge-grafana-dashboard.json`): Panels for throughput (allowed vs blocked), block-rate gauge, p50/p95/p99 store latency, error breakdown, route breakdown, and circuit breaker state.
+- **Alertmanager Rules** (`assets/alerts/prometheus-rules.yml`): Alert rules for high block rate (`>25%`), store outages, open circuit breakers, elevated latency (`p95 > 50ms`), and degraded traffic.
 
-- **Grafana Dashboard** (`assets/dashboards/smartrate-grafana-dashboard.json`):
-  Importable JSON dashboard with real-time panels for Throughput (allowed vs blocked), Block Rate ratio gauge, Store Latency p50/p95/p99 percentiles, and Circuit Breaker status.
-- **Alertmanager Rules** (`assets/alerts/prometheus-rules.yml`):
-  Production alerts for High Block Rate (>25%), Store Outages, Circuit Breaker Open events, and Store Latency degradation (p95 > 50ms).
-
-For a complete runnable Docker Compose environment featuring Express, Redis, Prometheus, and Grafana, see `examples/observability-stack/`.
+See `examples/observability-stack/` for a runnable Docker Compose environment with Express, Redis, Prometheus, and Grafana.

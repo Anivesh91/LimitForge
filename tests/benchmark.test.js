@@ -7,9 +7,9 @@ import {
 } from '../src/benchmark/benchmarkRunner.js';
 import demoApp from '../examples/express-demo/observability-demo.js';
 
-describe('SmartRate v7 — Day 4: Performance Benchmarking & Observability Demo', () => {
+describe('Performance Benchmarking & Observability Demo', () => {
 
-  describe('1. Percentile Calculator (calculatePercentiles)', () => {
+  describe('Percentile Calculator (calculatePercentiles)', () => {
     it('returns zero values when input array is empty or invalid', () => {
       const stats = calculatePercentiles([]);
       assert.equal(stats.count, 0);
@@ -49,7 +49,7 @@ describe('SmartRate v7 — Day 4: Performance Benchmarking & Observability Demo'
     });
   });
 
-  describe('2. Automated Benchmark Harness (runBenchmark)', () => {
+  describe('Automated Benchmark Harness (runBenchmark)', () => {
     it('executes all 6 rate limiter and telemetry scenarios cleanly', async () => {
       const report = await runBenchmark({ iterations: 100, warmup: 20 });
 
@@ -79,7 +79,7 @@ describe('SmartRate v7 — Day 4: Performance Benchmarking & Observability Demo'
     });
   });
 
-  describe('3. Observability Demo Express Application', () => {
+  describe('Observability Demo Express Application', () => {
     it('serves healthy status on /health', async () => {
       const res = await request(demoApp).get('/health');
       assert.equal(res.status, 200);
@@ -94,7 +94,7 @@ describe('SmartRate v7 — Day 4: Performance Benchmarking & Observability Demo'
       const metricsRes = await request(demoApp).get('/metrics');
       assert.equal(metricsRes.status, 200);
       assert.ok(metricsRes.headers['content-type'].includes('version=0.0.4'));
-      assert.ok(metricsRes.text.includes('smartrate_requests_total'));
+      assert.ok(metricsRes.text.includes('limitforge_requests_total'));
       assert.ok(metricsRes.text.includes('/api/users/:id'));
     });
   });

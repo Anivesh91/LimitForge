@@ -80,7 +80,7 @@ function createTestApp() {
   return app;
 }
 
-describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
+describe('Redis Token Bucket & Concurrency Tests', () => {
 
   describe('RedisStore Token Bucket Unit Semantics', () => {
     it('derives the refill rate from limit, window and interval when omitted', async () => {
@@ -104,7 +104,7 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       const redisClient = createAtomicRedisClient();
       const redisStore = new RedisStore({ client: redisClient });
 
-      const key = 'smartrate:token-bucket:GET:/redis-tb:10.0.0.1';
+      const key = 'limitforge:token-bucket:GET:/redis-tb:10.0.0.1';
       const capacity = 3;
       const refillRate = 1;
       const t0 = 100_000;
@@ -136,7 +136,7 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       const redisClient = createAtomicRedisClient();
       const redisStore = new RedisStore({ client: redisClient });
 
-      const key = 'smartrate:token-bucket:GET:/redis-refill:10.0.0.2';
+      const key = 'limitforge:token-bucket:GET:/redis-refill:10.0.0.2';
       const capacity = 5;
       const refillRate = 2;
       const t0 = 100_000;
@@ -163,7 +163,7 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       const redisClient = createAtomicRedisClient();
       const redisStore = new RedisStore({ client: redisClient });
 
-      const key = 'smartrate:token-bucket:GET:/redis-cap:10.0.0.3';
+      const key = 'limitforge:token-bucket:GET:/redis-cap:10.0.0.3';
       const capacity = 4;
       const refillRate = 10;
       const t0 = 10_000;
@@ -184,7 +184,7 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
     it('throws RangeError when refillIntervalMs is <= 0 or non-finite in RedisStore', async () => {
       const redisClient = createAtomicRedisClient();
       const redisStore = new RedisStore({ client: redisClient });
-      const key = 'smartrate:token-bucket:GET:/redis-invalid:10.0.0.99';
+      const key = 'limitforge:token-bucket:GET:/redis-invalid:10.0.0.99';
 
       await assert.rejects(
         async () => redisStore.consume({ key, capacity: 5, refillRate: 1, refillIntervalMs: 0, algorithm: 'token-bucket' }),
@@ -208,7 +208,7 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       const redisClient = createAtomicRedisClient();
       const redisStore = new RedisStore({ client: redisClient });
 
-      const key = 'smartrate:token-bucket:GET:/redis-interval:10.0.0.5';
+      const key = 'limitforge:token-bucket:GET:/redis-interval:10.0.0.5';
       const capacity = 5;
       const refillRate = 100;
       const refillIntervalMs = 60_000;
@@ -264,7 +264,7 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       const redisClient = createAtomicRedisClient();
       const redisStore = new RedisStore({ client: redisClient });
 
-      const key = 'smartrate:token-bucket:GET:/redis-smart-retry:10.0.0.6';
+      const key = 'limitforge:token-bucket:GET:/redis-smart-retry:10.0.0.6';
       const capacity = 10;
       const refillRate = 2;
       const refillIntervalMs = 1000;
@@ -300,7 +300,7 @@ describe('SmartRate v4 — Redis Token Bucket & Concurrency Tests', () => {
       const redisClient = createAtomicRedisClient();
       const redisStore = new RedisStore({ client: redisClient });
 
-      const key = 'smartrate:token-bucket:GET:/redis-weighted:10.0.0.4';
+      const key = 'limitforge:token-bucket:GET:/redis-weighted:10.0.0.4';
       const capacity = 10;
       const refillRate = 1;
       const t0 = 10_000;

@@ -11,7 +11,7 @@ function createTestApp() {
   return app;
 }
 
-describe('SmartRate v4 — Memory Token Bucket Unit & Integration Tests', () => {
+describe('Memory Token Bucket Unit & Integration Tests', () => {
 
   describe('Option Validation for Token Bucket', () => {
     it('throws RangeError when capacity is <= 0 or not an integer', () => {

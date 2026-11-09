@@ -16,7 +16,7 @@ function createTestApp() {
   return app;
 }
 
-describe('SmartRate v1 — Test Suite', () => {
+describe('RateLimiter Middleware Test Suite', () => {
 
   it('starts both Redis-backed examples when Redis is unavailable', async () => {
     const reservation = net.createServer();

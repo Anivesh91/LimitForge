@@ -7,7 +7,7 @@ local now = tonumber(clock[1]) * 1000 + math.floor(tonumber(clock[2]) / 1000)
 
 -- Keep timestamps and expiry calculations within Lua's exact integer range.
 if not windowMs or windowMs <= 0 or windowMs > 9007199254740991 - now then
-    return redis.error_reply("SmartRate: fixed window duration is out of range")
+    return redis.error_reply("LimitForge: fixed window duration is out of range")
 end
 -- Redis timestamps have millisecond precision; round before arithmetic so
 -- sub-millisecond values cannot disappear when added to an epoch timestamp.
@@ -30,7 +30,7 @@ if value then
         start = tonumber(savedStart)
         legacyUntil = tonumber(savedLegacyUntil)
         if not start or not legacyUntil or start > 9007199254740991 - windowMs or legacyUntil > 9007199254740991 then
-            return redis.error_reply("SmartRate: invalid fixed window state")
+            return redis.error_reply("LimitForge: invalid fixed window state")
         end
     elseif string.match(value, "^%-?%d+$") then
         -- The old counter does not record when its window started. Preserve it
@@ -38,7 +38,7 @@ if value then
         count = value
         legacyUntil = now + math.max(0, ttl)
     else
-        return redis.error_reply("SmartRate: invalid fixed window state")
+        return redis.error_reply("LimitForge: invalid fixed window state")
     end
 end
 
@@ -57,7 +57,7 @@ count = string.gsub(count, "^0+", "")
 if count == "" then count = "0" end
 local maxCount = negative and "9223372036854775808" or "9223372036854775807"
 if #count > #maxCount or (#count == #maxCount and (count > maxCount or (not negative and count == maxCount))) then
-    return redis.error_reply("SmartRate: fixed window counter overflow")
+    return redis.error_reply("LimitForge: fixed window counter overflow")
 end
 if negative and count ~= "0" then
     local pos = #count

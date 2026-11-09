@@ -6,7 +6,7 @@ rule_files:
   - "/etc/prometheus/prometheus-rules.yml"
 
 scrape_configs:
-  - job_name: "smartrate"
+  - job_name: "limitforge"
     metrics_path: "/metrics"
     static_configs:
       - targets: ["app:3000"]

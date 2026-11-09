@@ -1,5 +1,3 @@
-
-
 export const METRIC_TYPE = Object.freeze({
   COUNTER: 'counter',
   GAUGE: 'gauge',
@@ -7,15 +5,15 @@ export const METRIC_TYPE = Object.freeze({
 });
 
 export const METRIC_NAMES = Object.freeze({
-  REQUESTS_TOTAL: 'smartrate_requests_total',
-  STORE_ERRORS_TOTAL: 'smartrate_store_errors_total',
-  DEGRADED_REQUESTS_TOTAL: 'smartrate_degraded_requests_total',
+  REQUESTS_TOTAL: 'limitforge_requests_total',
+  STORE_ERRORS_TOTAL: 'limitforge_store_errors_total',
+  DEGRADED_REQUESTS_TOTAL: 'limitforge_degraded_requests_total',
   METRIC_UPDATES_DROPPED_TOTAL: 'limitforge_metric_updates_dropped_total',
   OVERFLOW_REQUESTS_ALLOWED_TOTAL: 'limitforge_overflow_requests_allowed_total',
   OVERFLOW_REQUESTS_BLOCKED_TOTAL: 'limitforge_overflow_requests_blocked_total',
   OVERFLOW_REQUESTS_OTHER_TOTAL: 'limitforge_overflow_requests_other_total',
-  CIRCUIT_BREAKER_STATE: 'smartrate_circuit_breaker_state',
-  STORE_DURATION_SECONDS: 'smartrate_store_duration_seconds'
+  CIRCUIT_BREAKER_STATE: 'limitforge_circuit_breaker_state',
+  STORE_DURATION_SECONDS: 'limitforge_store_duration_seconds'
 });
 
 export const CIRCUIT_STATE_GAUGE_VALUES = Object.freeze({

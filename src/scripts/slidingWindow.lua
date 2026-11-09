@@ -1,4 +1,3 @@
-
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
 if ARGV[5] == '1' then
@@ -13,7 +12,7 @@ local member = ARGV[4]
 -- Redis expiry uses whole milliseconds. Validate before modifying the sorted set
 -- and round up so a fractional window cannot leave a key without a TTL.
 if not windowMs or windowMs <= 0 or windowMs > 9007199254740991 - math.max(0, now) then
-    return redis.error_reply("SmartRate: sliding window duration is out of range")
+    return redis.error_reply("LimitForge: sliding window duration is out of range")
 end
 local ttlMs = math.max(1, math.ceil(windowMs))
 

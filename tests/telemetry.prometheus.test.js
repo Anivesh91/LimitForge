@@ -20,9 +20,9 @@ import {
   CIRCUIT_STATE_GAUGE_VALUES
 } from '../src/index.js';
 
-describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () => {
+describe('Native Prometheus Text Exposition Format', () => {
 
-  describe('1. Escaping & Label Formatting Utilities', () => {
+  describe('Escaping & Label Formatting Utilities', () => {
     it('escapes backslashes, double quotes, and newlines in label values', () => {
       assert.equal(escapeLabelValue('normal_value'), 'normal_value');
       assert.equal(escapeLabelValue('path/with/"quotes"'), 'path/with/\\"quotes\\"');
@@ -54,7 +54,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
     });
   });
 
-  describe('2. Prometheus Exposition Serializer (formatPrometheusMetrics)', () => {
+  describe('Prometheus Exposition Serializer (formatPrometheusMetrics)', () => {
     it('returns empty string when metrics snapshot is empty', () => {
       assert.equal(formatPrometheusMetrics({}), '');
       assert.equal(formatPrometheusMetrics({ counters: {}, gauges: {}, histograms: {} }), '');
@@ -86,7 +86,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
       assert.ok(output.includes(`# TYPE ${METRIC_NAMES.REQUESTS_TOTAL} counter`));
       assert.ok(
         output.includes(
-          'smartrate_requests_total{algorithm="fixed-window",method="GET",normalized_route="/api/v1/health",outcome="allowed",store="memory"} 12'
+          'limitforge_requests_total{algorithm="fixed-window",method="GET",normalized_route="/api/v1/health",outcome="allowed",store="memory"} 12'
         )
       );
       assert.ok(output.endsWith('\n'));
@@ -110,7 +110,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
 
       assert.ok(output.includes(`# HELP ${METRIC_NAMES.CIRCUIT_BREAKER_STATE}`));
       assert.ok(output.includes(`# TYPE ${METRIC_NAMES.CIRCUIT_BREAKER_STATE} gauge`));
-      assert.ok(output.includes('smartrate_circuit_breaker_state 2'));
+      assert.ok(output.includes('limitforge_circuit_breaker_state 2'));
       assert.ok(output.endsWith('\n'));
     });
 
@@ -137,11 +137,11 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
 
       assert.ok(output.includes(`# HELP ${METRIC_NAMES.STORE_DURATION_SECONDS}`));
       assert.ok(output.includes(`# TYPE ${METRIC_NAMES.STORE_DURATION_SECONDS} histogram`));
-      assert.ok(output.includes('smartrate_store_duration_seconds_bucket{le="0.001",store="redis"} 2'));
-      assert.ok(output.includes('smartrate_store_duration_seconds_bucket{le="0.005",store="redis"} 5'));
-      assert.ok(output.includes('smartrate_store_duration_seconds_bucket{le="+Inf",store="redis"} 5'));
-      assert.ok(output.includes('smartrate_store_duration_seconds_sum{store="redis"} 0.0125'));
-      assert.ok(output.includes('smartrate_store_duration_seconds_count{store="redis"} 5'));
+      assert.ok(output.includes('limitforge_store_duration_seconds_bucket{le="0.001",store="redis"} 2'));
+      assert.ok(output.includes('limitforge_store_duration_seconds_bucket{le="0.005",store="redis"} 5'));
+      assert.ok(output.includes('limitforge_store_duration_seconds_bucket{le="+Inf",store="redis"} 5'));
+      assert.ok(output.includes('limitforge_store_duration_seconds_sum{store="redis"} 0.0125'));
+      assert.ok(output.includes('limitforge_store_duration_seconds_count{store="redis"} 5'));
       assert.ok(output.endsWith('\n'));
     });
 
@@ -164,7 +164,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
     });
   });
 
-  describe('3. Express Prometheus Exporter Middleware Integration', () => {
+  describe('Express Prometheus Exporter Middleware Integration', () => {
     let collector;
     let app;
 
@@ -195,7 +195,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         assert.equal((await request(boundedApp).get(route)).status, 200);
       }
       const res = await request(boundedApp).get('/metrics');
-      const lines = res.text.split('\n').filter(line => line.startsWith('smartrate_requests_total{'));
+      const lines = res.text.split('\n').filter(line => line.startsWith('limitforge_requests_total{'));
       assert.equal(res.status, 200);
       assert.equal(lines.length, 2);
       assert.equal(lines.reduce((total, line) => total + Number(line.slice(line.lastIndexOf(' ') + 1)), 0), 4);
@@ -278,7 +278,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         const example = new Function('express', 'rateLimiter', 'createPrometheusExporter', runnable)(express, rateLimiter, createPrometheusExporter);
         const scrape = await request(example).get('/metrics');
         assert.equal(scrape.status, 200);
-        assert.match(scrape.text, /smartrate_requests_total\{[^\n]*outcome="allowed"/);
+        assert.match(scrape.text, /limitforge_requests_total\{[^\n]*outcome="allowed"/);
       }
     });
 
@@ -310,8 +310,8 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         assert.equal(checkout.headers['ratelimit-degraded'], 'true');
         const scrape = await request(example).get('/metrics');
         assert.equal(scrape.status, 200);
-        assert.match(scrape.text, /smartrate_requests_total\{algorithm="fixed-window"[^\n]*outcome="allowed"/);
-        assert.match(scrape.text, /smartrate_requests_total\{algorithm="token-bucket"[^\n]*outcome="allowed"/);
+        assert.match(scrape.text, /limitforge_requests_total\{algorithm="fixed-window"[^\n]*outcome="allowed"/);
+        assert.match(scrape.text, /limitforge_requests_total\{algorithm="token-bucket"[^\n]*outcome="allowed"/);
       }
     });
 
@@ -323,7 +323,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
         'text/plain; version=0.0.4; charset=utf-8'
       );
 
-      assert.ok(res.text.includes('smartrate_circuit_breaker_state 0'));
+      assert.ok(res.text.includes('limitforge_circuit_breaker_state 0'));
     });
 
     it('scrapes realistic multi-route rate limiting and failure traffic', async () => {
@@ -340,28 +340,28 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
 
       const body = scrape.text;
 
-      assert.ok(body.includes('# HELP smartrate_requests_total Total number of rate limiter requests evaluated.'));
-      assert.ok(body.includes('# TYPE smartrate_requests_total counter'));
+      assert.ok(body.includes('# HELP limitforge_requests_total Total number of rate limiter requests evaluated.'));
+      assert.ok(body.includes('# TYPE limitforge_requests_total counter'));
 
       assert.ok(
         body.includes(
-          'smartrate_requests_total{algorithm="sliding-window",method="GET",normalized_route="/api/users/:id",outcome="allowed",store="memory"} 2'
+          'limitforge_requests_total{algorithm="sliding-window",method="GET",normalized_route="/api/users/:id",outcome="allowed",store="memory"} 2'
         )
       );
       assert.ok(
         body.includes(
-          'smartrate_requests_total{algorithm="sliding-window",method="GET",normalized_route="/api/users/:id",outcome="blocked",store="memory"} 1'
+          'limitforge_requests_total{algorithm="sliding-window",method="GET",normalized_route="/api/users/:id",outcome="blocked",store="memory"} 1'
         )
       );
       assert.ok(
         body.includes(
-          'smartrate_requests_total{algorithm="sliding-window",method="POST",normalized_route="/api/checkout",outcome="allowed",store="memory"} 1'
+          'limitforge_requests_total{algorithm="sliding-window",method="POST",normalized_route="/api/checkout",outcome="allowed",store="memory"} 1'
         )
       );
 
-      assert.ok(body.includes('# TYPE smartrate_store_duration_seconds histogram'));
-      assert.ok(body.includes('smartrate_store_duration_seconds_bucket{le="+Inf",store="memory"} 4'));
-      assert.ok(body.includes('smartrate_store_duration_seconds_count{store="memory"} 4'));
+      assert.ok(body.includes('# TYPE limitforge_store_duration_seconds histogram'));
+      assert.ok(body.includes('limitforge_store_duration_seconds_bucket{le="+Inf",store="memory"} 4'));
+      assert.ok(body.includes('limitforge_store_duration_seconds_count{store="memory"} 4'));
     });
 
     it('falls back to defaultMetricsCollector when collector is not explicitly passed', async () => {
@@ -381,7 +381,7 @@ describe('SmartRate v7 — Day 2: Native Prometheus Text Exposition Format', () 
 
       const res = await request(defaultApp).get('/metrics');
       assert.equal(res.status, 200);
-      assert.ok(res.text.includes('smartrate_requests_total'));
+      assert.ok(res.text.includes('limitforge_requests_total'));
       assert.ok(res.text.includes('outcome="allowed"'));
     });
 

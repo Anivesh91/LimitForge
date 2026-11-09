@@ -115,7 +115,7 @@ describe('route key scope', () => {
     app.get('/two', (req, res) => res.sendStatus(200));
     assert.equal((await get(app, '/one')).status, 200);
     assert.equal((await get(app, '/two')).status, 429);
-    const entries = collector.getSnapshot().counters.smartrate_requests_total;
+    const entries = collector.getSnapshot().counters.limitforge_requests_total;
     assert.ok(entries.some(e => e.labels.normalized_route === '/two' && e.labels.outcome === 'blocked'));
   });
 

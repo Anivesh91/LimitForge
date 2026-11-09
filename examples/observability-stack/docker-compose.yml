@@ -48,7 +48,7 @@ services:
     volumes:
       - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ../../assets/dashboards/smartrate-grafana-dashboard.json:/var/lib/grafana/dashboards/smartrate-grafana-dashboard.json:ro
+      - ../../assets/dashboards/limitforge-grafana-dashboard.json:/var/lib/grafana/dashboards/limitforge-grafana-dashboard.json:ro
     depends_on:
       - prometheus
     restart: unless-stopped

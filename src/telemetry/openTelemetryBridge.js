@@ -4,7 +4,7 @@ export class OpenTelemetryBridge {
     this.getSpan = options.getSpan || null;
   }
 
-  startSpan(name = 'smartrate.consume', options = {}) {
+  startSpan(name = 'limitforge.consume', options = {}) {
     if (this.tracer && typeof this.tracer.startSpan === 'function') {
       try {
         return this.tracer.startSpan(name, options);
@@ -33,8 +33,8 @@ export class OpenTelemetryBridge {
     if (req && req.telemetrySpan && typeof req.telemetrySpan.setAttribute === 'function') {
       return req.telemetrySpan;
     }
-    if (req && req._smartRateSpan && typeof req._smartRateSpan.setAttribute === 'function') {
-      return req._smartRateSpan;
+    if (req && req._limitForgeSpan && typeof req._limitForgeSpan.setAttribute === 'function') {
+      return req._limitForgeSpan;
     }
 
     try {
@@ -64,19 +64,19 @@ export class OpenTelemetryBridge {
       const routeStr = normalizedRoute || '/';
       const storeStr = store || 'unknown';
 
-      span.setAttribute('smartrate.outcome', isAllowed ? 'allowed' : 'blocked');
-      span.setAttribute('smartrate.algorithm', algoStr);
-      span.setAttribute('smartrate.route', routeStr);
-      span.setAttribute('smartrate.store', storeStr);
+      span.setAttribute('limitforge.outcome', isAllowed ? 'allowed' : 'blocked');
+      span.setAttribute('limitforge.algorithm', algoStr);
+      span.setAttribute('limitforge.route', routeStr);
+      span.setAttribute('limitforge.store', storeStr);
 
       if (typeof result.remaining === 'number') {
-        span.setAttribute('smartrate.remaining', result.remaining);
+        span.setAttribute('limitforge.remaining', result.remaining);
       }
       if (typeof result.reset === 'number') {
-        span.setAttribute('smartrate.reset', result.reset);
+        span.setAttribute('limitforge.reset', result.reset);
       }
       if (result.degraded) {
-        span.setAttribute('smartrate.degraded', true);
+        span.setAttribute('limitforge.degraded', true);
       }
 
       span.setAttribute('ratelimit.allowed', isAllowed);
@@ -92,9 +92,9 @@ export class OpenTelemetryBridge {
 
       if (!isAllowed) {
         if (typeof span.addEvent === 'function') {
-          span.addEvent('smartrate.rate_limit_exceeded', {
-            'smartrate.retry_after': result.retryAfter || 0,
-            'smartrate.route': routeStr,
+          span.addEvent('limitforge.rate_limit_exceeded', {
+            'limitforge.retry_after': result.retryAfter || 0,
+            'limitforge.route': routeStr,
             'ratelimit.retry_after': result.retryAfter || 0
           });
         }
@@ -114,14 +114,14 @@ export class OpenTelemetryBridge {
       }
 
       if (typeof span.setAttribute === 'function') {
-        span.setAttribute('smartrate.store_error', true);
-        span.setAttribute('smartrate.store', store || 'unknown');
+        span.setAttribute('limitforge.store_error', true);
+        span.setAttribute('limitforge.store', store || 'unknown');
         span.setAttribute('ratelimit.store_error', true);
         span.setAttribute('ratelimit.store', store || 'unknown');
       }
 
       if (typeof span.addEvent === 'function') {
-        span.addEvent('smartrate.store_error', {
+        span.addEvent('limitforge.store_error', {
           'error.name': storeError?.name || 'Error',
           'error.message': storeError?.message || 'Store operation failed'
         });

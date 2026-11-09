@@ -44,7 +44,7 @@ function createTestApp() {
   return app;
 }
 
-describe('SmartRate v2 — Redis Fixed Window & Expiration Tests', () => {
+describe('Redis Fixed Window & Expiration Tests', () => {
 
   it('increments counter and sets TTL on first request', async () => {
     const redisClient = createSimulatedRedisClient();

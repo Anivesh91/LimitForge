@@ -1,16 +1,10 @@
 /**
- * LimitForge — Real OpenTelemetry SDK Integration Example
- *
- * Demonstrates wiring LimitForge's OpenTelemetryBridge directly into
- * the official OpenTelemetry Node.js SDK (@opentelemetry/sdk-node).
- *
- * Required dependencies for production tracing:
+ * Optional OpenTelemetry Node SDK wiring example.
+ * Install peer packages to emit real traces:
  *   npm install @opentelemetry/api @opentelemetry/sdk-node @opentelemetry/sdk-trace-base
- *
  * Run:
  *   node examples/observability-stack/otel-sdk-example.js
  */
-
 import express from 'express';
 import { rateLimiter, OpenTelemetryBridge, MemoryStore } from '../../src/index.js';
 
@@ -28,23 +22,19 @@ async function bootstrap() {
     });
 
     sdk.start();
-    tracer = trace.getTracer('limitforge-service', '8.0.1');
+    tracer = trace.getTracer('limitforge-service');
     getActiveSpan = () => trace.getActiveSpan();
-    console.log('[OpenTelemetry] Official Node SDK initialized with ConsoleSpanExporter.');
+    console.log('[OpenTelemetry] Node SDK initialized with ConsoleSpanExporter.');
   } catch {
-    console.warn('[OpenTelemetry] @opentelemetry/sdk-node is not installed in demo devDependencies.');
-    console.warn('[OpenTelemetry] Falling back to duck-typed active span provider.');
+    console.warn('[OpenTelemetry] @opentelemetry/sdk-node not installed; using duck-typed fallback spans.');
   }
 
   const app = express();
-
-  // Wire LimitForge bridge with OpenTelemetry tracer
   const otelBridge = new OpenTelemetryBridge({
     tracer,
     getSpan: (req) => (getActiveSpan ? getActiveSpan() : req.telemetrySpan)
   });
 
-  // Request span lifecycle middleware
   app.use((req, res, next) => {
     if (tracer) {
       tracer.startActiveSpan(`${req.method} ${req.baseUrl || req.path}`, (span) => {
@@ -63,7 +53,6 @@ async function bootstrap() {
     }
   });
 
-  // Apply LimitForge rate limiter with OpenTelemetry integration
   app.use(
     '/api',
     rateLimiter({
@@ -84,7 +73,7 @@ async function bootstrap() {
   const PORT = process.env.OTEL_EXAMPLE_PORT || 3002;
   if (process.env.NODE_ENV !== 'test') {
     app.listen(PORT, () => {
-      console.log(`[LimitForge] OpenTelemetry example server running on http://localhost:${PORT}`);
+      console.log(`OpenTelemetry example listening on http://localhost:${PORT}`);
     });
   }
 

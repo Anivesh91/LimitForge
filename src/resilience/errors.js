@@ -1,6 +1,6 @@
 export class StoreTimeoutError extends Error {
   constructor(timeoutMs = 250, message) {
-    super(message || `SmartRate: Rate limit store operation timed out after ${timeoutMs}ms.`);
+    super(message || `LimitForge: Rate limit store operation timed out after ${timeoutMs}ms.`);
     this.name = 'StoreTimeoutError';
     this.isTimeout = true;
     this.code = 'ERR_STORE_TIMEOUT';
@@ -14,7 +14,7 @@ export class StoreTimeoutError extends Error {
 
 export class CircuitBreakerOpenError extends Error {
   constructor(message, resetTimeoutMs) {
-    super(message || 'SmartRate: Circuit breaker is OPEN. Store operations temporarily suspended.');
+    super(message || 'LimitForge: Circuit breaker is OPEN. Store operations temporarily suspended.');
     this.name = 'CircuitBreakerOpenError';
     this.isCircuitOpen = true;
     this.code = 'ERR_CIRCUIT_OPEN';

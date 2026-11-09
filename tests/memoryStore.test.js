@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { MemoryStore } from '../src/stores/memoryStore.js';
 
-describe('SmartRate — MemoryStore Unit Tests', () => {
+describe('MemoryStore Unit Tests', () => {
 
   it('initializes a fresh record on first consume call', async () => {
     const store = new MemoryStore();

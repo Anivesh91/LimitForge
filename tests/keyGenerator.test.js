@@ -62,7 +62,7 @@ function createSimulatedRedisClient() {
   };
 }
 
-describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
+describe('Custom Key Generator & Multi-Tenant Keys', () => {
 
   describe('Option Validation (Fail-Fast)', () => {
     it('throws TypeError when keyGenerator is provided but not a function', () => {
@@ -513,7 +513,7 @@ describe('SmartRate v4 — Custom Key Generator & Multi-Tenant Keys', () => {
     it('validates hashClientIdentifier option in rateLimiter fail-fast', () => {
       assert.throws(
         () => rateLimiter({ limit: 5, windowMs: 1000, hashClientIdentifier: 'invalid' }),
-        /SmartRate: 'hashClientIdentifier' must be a boolean or a hash function/
+        /LimitForge: 'hashClientIdentifier' must be a boolean or a hash function/
       );
     });
 

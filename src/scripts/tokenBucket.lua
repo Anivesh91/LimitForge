@@ -1,4 +1,3 @@
-
 local key = KEYS[1]
 local now = tonumber(ARGV[1])
 if ARGV[6] == '1' then
@@ -50,7 +49,6 @@ else
     retryAfter = math.max(1, math.ceil(waitMs / 1000))
 end
 
--- update bucket state in redis
 redis.call("HSET", key, "tokens", tostring(currentTokens), "lastRefill", tostring(lastRefill))
 
 local fullTimeMs = math.ceil(capacity / refillPerMs)
@@ -58,7 +56,6 @@ local fullTimeSec = math.ceil(fullTimeMs / 1000)
 local ttlSeconds = math.max(60, fullTimeSec * 2)
 redis.call("EXPIRE", key, ttlSeconds)
 
--- calculate reset option c semantics
 local reset
 if allowed == 1 then
     local timeToFullMs = math.max(0, (capacity - currentTokens) / refillPerMs)

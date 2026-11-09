@@ -4,30 +4,17 @@ import { CircuitBreaker } from '../resilience/circuitBreaker.js';
 import { withTimeout } from '../resilience/timeoutGuard.js';
 
 /**
- * ResilientStore — High-Availability Dual-Store Failover Wrapper.
- *
- * Combines a distributed primary store (e.g., RedisStore) with a local in-memory
- * fallback store (e.g., MemoryStore) guarded by an execution timeout and a Circuit Breaker.
- *
- * Operational Trade-off & Degradation Semantics:
- * LimitForge prioritizes High Availability (AP) over strict Global Consistency (CP)
- * when the distributed primary store becomes unreachable.
- *
- * In a multi-node cluster (N application instances):
- * - Healthy state (Redis UP): Global rate limit L is strictly enforced across all nodes.
- * - Degraded state (Redis DOWN): Each node switches to its local MemoryStore and enforces
- *   quota L locally. Under heavy load, aggregate cluster throughput may reach up to N * L
- *   before all instances throttle clients.
- *
- * If strict global quota enforcement is mandatory even during database failure, configure
- * `failStrategy: 'fail-closed'` or `onStoreError: 'fail-closed'` on the rateLimiter.
+ * Dual-store failover wrapper pairing a distributed primary store with a local
+ * fallback guarded by a timeout and CircuitBreaker (prioritizes availability over
+ * global quota consistency during primary outages; set `onStoreError: 'fail-closed'`
+ * on the middleware for strict global enforcement).
  */
 export class ResilientStore extends EventEmitter {
   constructor(options = {}) {
     super();
 
     if (!options || typeof options !== 'object') {
-      throw new TypeError('SmartRate: ResilientStore options must be an object.');
+      throw new TypeError('LimitForge: ResilientStore options must be an object.');
     }
 
     const {
@@ -41,13 +28,13 @@ export class ResilientStore extends EventEmitter {
     } = options;
 
     if (!primaryStore || typeof primaryStore.consume !== 'function') {
-      throw new TypeError("SmartRate: ResilientStore requires a 'primaryStore' implementing a consume() method.");
+      throw new TypeError("LimitForge: ResilientStore requires a 'primaryStore' implementing a consume() method.");
     }
     this.primaryStore = primaryStore;
 
     if (fallbackStore !== undefined) {
       if (!fallbackStore || typeof fallbackStore.consume !== 'function') {
-        throw new TypeError("SmartRate: ResilientStore 'fallbackStore' must implement a consume() method.");
+        throw new TypeError("LimitForge: ResilientStore 'fallbackStore' must implement a consume() method.");
       }
       this.fallbackStore = fallbackStore;
     } else {
@@ -56,7 +43,7 @@ export class ResilientStore extends EventEmitter {
 
     if (timeoutMs !== undefined && (typeof timeoutMs !== 'number' || !Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
       throw new RangeError(
-        `SmartRate: ResilientStore 'timeoutMs' must be a positive number in milliseconds (received: ${timeoutMs}).`
+        `LimitForge: ResilientStore 'timeoutMs' must be a positive number in milliseconds (received: ${timeoutMs}).`
       );
     }
     this.timeoutMs = timeoutMs;

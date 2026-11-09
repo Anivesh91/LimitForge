@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { RedisStore } from '../src/stores/redisStore.js';
 import { buildRateLimitKey } from '../src/utils/keyBuilder.js';
 
-describe('SmartRate — RedisStore Unit Tests', () => {
+describe('RedisStore Unit Tests', () => {
 
   it('throws TypeError when options is missing or not an object', () => {
     assert.throws(() => new RedisStore(), {

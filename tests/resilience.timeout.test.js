@@ -4,9 +4,9 @@ import request from 'supertest';
 import express from 'express';
 import { rateLimiter, StoreTimeoutError, withTimeout } from '../src/index.js';
 
-describe('SmartRate v6 — Day 1: Store Timeout & Failure Policies', () => {
+describe('Store Timeout & Failure Policies', () => {
 
-  describe('1. StoreTimeoutError Class', () => {
+  describe('StoreTimeoutError Class', () => {
     it('instantiates with expected name, code, isTimeout, and timeoutMs properties', () => {
       const err = new StoreTimeoutError(250, 'Store timed out');
       assert.ok(err instanceof Error);
@@ -22,11 +22,11 @@ describe('SmartRate v6 — Day 1: Store Timeout & Failure Policies', () => {
       const err = new StoreTimeoutError();
       assert.equal(err.name, 'StoreTimeoutError');
       assert.equal(err.timeoutMs, 250);
-      assert.equal(err.message, 'SmartRate: Rate limit store operation timed out after 250ms.');
+      assert.equal(err.message, 'LimitForge: Rate limit store operation timed out after 250ms.');
     });
   });
 
-  describe('2. withTimeout Utility', () => {
+  describe('withTimeout Utility', () => {
     it('resolves fast synchronous values immediately', async () => {
       const result = await withTimeout({ allowed: true, remaining: 5 }, 100);
       assert.deepEqual(result, { allowed: true, remaining: 5 });
@@ -75,7 +75,7 @@ describe('SmartRate v6 — Day 1: Store Timeout & Failure Policies', () => {
     });
   });
 
-  describe('3. Option Validation for Resilience Configuration', () => {
+  describe('Option Validation for Resilience Configuration', () => {
     it('throws RangeError when timeoutMs is 0, negative, or not a finite number', () => {
       assert.throws(() => rateLimiter({ limit: 5, windowMs: 60_000, timeoutMs: 0 }), { name: 'RangeError' });
       assert.throws(() => rateLimiter({ limit: 5, windowMs: 60_000, timeoutMs: -100 }), { name: 'RangeError' });
@@ -97,7 +97,7 @@ describe('SmartRate v6 — Day 1: Store Timeout & Failure Policies', () => {
     });
   });
 
-  describe('4. Fail-Open Strategy (Store Error & Timeout Bypass)', () => {
+  describe('Fail-Open Strategy (Store Error & Timeout Bypass)', () => {
     it('uses a 250ms timeout when timeoutMs is omitted', async () => {
       const slowStore = {
         consume: () => new Promise(() => {})
@@ -170,7 +170,7 @@ describe('SmartRate v6 — Day 1: Store Timeout & Failure Policies', () => {
     });
   });
 
-  describe('5. Fail-Closed Strategy (Store Error & Timeout 503 Rejection)', () => {
+  describe('Fail-Closed Strategy (Store Error & Timeout 503 Rejection)', () => {
     it('returns 503 Service Unavailable, RateLimit-Degraded, and Retry-After: 30 on store error', async () => {
       const downStore = {
         async consume() {
@@ -217,7 +217,7 @@ describe('SmartRate v6 — Day 1: Store Timeout & Failure Policies', () => {
     });
   });
 
-  describe('6. Custom onStoreError Handler & Backward Compatibility', () => {
+  describe('Custom onStoreError Handler & Backward Compatibility', () => {
     it('delegates to custom function when provided', async () => {
       const brokenStore = {
         async consume() {

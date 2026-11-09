@@ -1,122 +1,101 @@
 # Contributing to LimitForge
 
-Thank you for your interest in contributing to **LimitForge**! We welcome community contributions, bug reports, documentation improvements, and architectural suggestions.
-
-This document outlines our development workflows, coding standards, and pull request guidelines.
-
----
+Contributions, bug fixes, and documentation improvements are welcome. This guide covers local setup, coding conventions, and PR checks.
 
 ## Code of Conduct
 
-By participating in this project, you agree to maintain a respectful, inclusive, and professional environment for everyone. Please treat contributors and users with kindness and constructive feedback.
-
----
+Keep discussions constructive and respectful in issues, pull requests, and reviews.
 
 ## Development Setup
 
 ### Prerequisites
-- **Node.js**: `>= 18.0.0` (Node 20+ or 22+ recommended)
+- **Node.js**: `>= 18.0.0`
 - **npm**: `>= 9.0.0`
-- **Redis** *(optional for local testing)*: Redis server running on `localhost:6379` (or via Docker) to run distributed and Lua integration tests.
+- **Redis** *(optional)*: Running locally on `localhost:6379` (via Docker or native install) to execute live Redis Lua integration tests.
 
 ### Getting Started
 
-1. **Fork the repository** on GitHub:
-   Navigate to [https://github.com/Anivesh91/LimitForge](https://github.com/Anivesh91/LimitForge) and click **Fork**.
-
-2. **Clone your fork locally**:
+1. Fork [https://github.com/Anivesh91/LimitForge](https://github.com/Anivesh91/LimitForge) and clone locally:
    ```bash
    git clone https://github.com/<your-username>/LimitForge.git
    cd LimitForge
    ```
-
-3. **Install dependencies**:
+2. Install dependencies:
    ```bash
    npm install
    ```
-
-4. **Verify existing tests pass**:
+3. Run the test suite and type check:
    ```bash
    npm test
+   npm run typecheck
    ```
-   All tests should pass cleanly (253+ passing tests, 0 failures).
-
----
+   When `REDIS_URL` is unset, live Redis integration tests are skipped automatically.
 
 ## Project Structure
 
 ```text
-limitforge/
+LimitForge/
 ├── src/
-│   ├── limiter/         # Express middleware & core rate limiter engine
+│   ├── limiter/         # Express middleware engine
 │   ├── stores/          # MemoryStore, RedisStore, ResilientStore
-│   ├── resilience/      # CircuitBreaker, TimeoutGuard, Error types
-│   ├── telemetry/       # PrometheusExporter, MetricsCollector, OpenTelemetry
+│   ├── resilience/      # CircuitBreaker, timeout guard, error classes
+│   ├── telemetry/       # Prometheus exporter, MetricsCollector, OpenTelemetry bridge
 │   ├── scripts/         # Atomic Redis Lua scripts (.lua)
-│   ├── utils/           # Route normalizer, key builder
-│   └── index.js         # Public package entry point
-├── tests/               # Native node:test unit & integration test suites
-├── examples/            # Runnable Express demos & Docker observability stack
-├── index.d.ts           # Public TypeScript typings
-├── README.md            # Main user documentation
-├── CHANGELOG.md         # Semantic version changelog
-├── SECURITY.md          # Vulnerability reporting policy
-└── package.json         # Package manifest & configuration
+│   ├── utils/           # Route normalizer & key encoding helpers
+│   ├── benchmark/       # Benchmark runner & percentile helpers
+│   └── index.js         # Package entry point
+├── assets/              # Sample Grafana dashboard & Prometheus alerting rules
+├── docs/                # Architecture, resilience, observability & performance docs
+├── examples/            # Express demos & Docker observability stack
+├── scripts/             # Benchmark CLI entrypoint
+├── tests/               # node:test unit & integration suites
+├── index.d.ts           # Ambient TypeScript declarations
+├── package.json
+└── README.md
 ```
-
----
 
 ## Development Workflow
 
-### 1. Create a Topic Branch
-Always branch off the `master` branch:
+### 1. Branch Off `master`
 ```bash
-git checkout -b feature/my-new-feature
+git checkout -b feature/my-change
 # or
-git checkout -b fix/resolve-timeout-bug
+git checkout -b fix/timeout-edge-case
 ```
 
-### 2. Coding Standards
-- **ES Modules**: We strictly use native ES Modules (`import`/`export`).
-- **Zero Runtime Dependencies**: The core limiter runs with zero external runtime dependencies. Do not add heavy production dependencies to `dependencies` in `package.json`.
-- **Performance First**: Rate limiting middleware runs on every HTTP request. Avoid micro-allocations, redundant JSON serializations, unindexed lookups, or unneeded regex calls in hot request loops.
-- **TypeScript Definitions**: If you modify any public options, signatures, or store methods, update `index.d.ts` accordingly.
-- **Defensive Error Handling**: Telemetry, metrics collection, and store fallbacks must never crash user HTTP request flows.
+### 2. Coding Conventions
+- **ES Modules only**: Use standard `import` / `export` syntax (`"type": "module"`).
+- **Zero runtime dependencies**: Do not add runtime packages to `dependencies` in `package.json`.
+- **Low hot-path allocation**: Middleware runs on every request; avoid unnecessary allocations, heavy regexes, or blocking synchronous work in the request path.
+- **Type definitions**: Keep `index.d.ts` aligned whenever public options, exports, or method signatures change.
+- **Fault-isolated telemetry**: Metrics and tracing helpers must never throw into request handling.
 
-### 3. Running Tests
-We use Node.js's native test runner (`node:test`):
-
+### 3. Tests & Benchmarks
 ```bash
-# Run the entire test suite
+# Run full suite
 npm test
 
-# Run a specific test file
-node --test tests/memory-token-bucket.test.js
-```
+# Run with live Redis
+REDIS_URL=redis://localhost:6379 npm test
 
-### 4. Running Benchmarks
-If you touch the request evaluation pipeline, verify that overhead remains bounded within microseconds:
-```bash
+# Run a single test file
+node --test tests/tokenBucket.memory.test.js
+
+# Verify TypeScript declarations
+npm run typecheck
+
+# Measure middleware latency overhead
 npm run benchmark
 ```
 
----
+## Pull Request Checklist
 
-## Pull Request Guidelines
-
-Before submitting your PR:
-1. Ensure `npm test` passes 100% with zero failures.
-2. If adding a new feature or fixing a bug, include corresponding unit/integration tests in `tests/`.
-3. If public options changed, update `index.d.ts` and `README.md`.
-4. Keep commits clean, atomic, and well-described:
-   - `fix: prevent circuit breaker half-open race condition`
-   - `docs: update redis store injection examples`
-   - `feat: support custom sliding window interval`
-5. Open a Pull Request against the `master` branch of `Anivesh91/LimitForge`.
-6. Provide a concise description of your changes, motivation, and test coverage in the PR template.
-
----
+1. `npm test` passes with zero failures (include new tests for features or bug fixes).
+2. `npm run typecheck` passes cleanly (`index.d.ts` updated if public API changed).
+3. Documentation in `README.md` / `docs/` reflects any behavior or option changes.
+4. Commits are concise and focused (e.g., `fix: prevent circuit breaker half-open race condition`).
+5. Target the `master` branch with a brief summary of motivation, changes, and verification.
 
 ## License
 
-By contributing to LimitForge, you agree that your contributions will be licensed under the project's [MIT License](LICENSE).
+By contributing, you agree your contributions are licensed under the project's [MIT License](LICENSE).

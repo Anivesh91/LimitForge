@@ -74,11 +74,11 @@ function createExpressApp() {
   return app;
 }
 
-describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distributed State & HTTP Recovery', () => {
+describe('Token Bucket Concurrency, Identity, Distributed State & HTTP Recovery', () => {
 
-  describe('1. RateLimit-Reset & Header Parity (Memory ↔ Redis Option C Semantics)', () => {
+  describe('RateLimit-Reset & Header Parity (Memory ↔ Redis)', () => {
 
-    it('enforces exact Option C RateLimit-Reset on allowed responses in both MemoryStore and RedisStore', async () => {
+    it('enforces exact RateLimit-Reset on allowed responses in both MemoryStore and RedisStore', async () => {
       const memoryStore = new MemoryStore();
       const redisClient = createDistributedRedisClient();
       const redisStore = new RedisStore({ client: redisClient });
@@ -121,7 +121,7 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
       assert.equal(redisRes.retryAfter, undefined);
     });
 
-    it('enforces exact Option C RateLimit-Reset on blocked responses (reset === retryAfter) in both stores', async () => {
+    it('enforces exact RateLimit-Reset on blocked responses (reset === retryAfter) in both stores', async () => {
       const memoryStore = new MemoryStore();
       const redisClient = createDistributedRedisClient();
       const redisStore = new RedisStore({ client: redisClient });
@@ -213,7 +213,7 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
     });
   });
 
-  describe('2. Multi-Instance Shared Token Bucket (Distributed Redis)', () => {
+  describe('Multi-Instance Shared Token Bucket (Distributed Redis)', () => {
     it('enforces a shared Token Bucket across multiple Express instances with zero local leaks', async () => {
       const sharedStorage = new Map();
       const sharedQueue = { current: Promise.resolve() };
@@ -275,7 +275,7 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
     });
   });
 
-  describe('3. Identity Composition with Token Bucket (User, API Key, Tenant, IP Fallback)', () => {
+  describe('Identity Composition with Token Bucket (User, API Key, Tenant, IP Fallback)', () => {
     it('isolates Token Bucket quotas by authenticated User ID behind a shared NAT IP', async () => {
       const app = createExpressApp();
       app.use((req, res, next) => {
@@ -415,7 +415,7 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
     });
   });
 
-  describe('4. HTTP Client Recovery Flow (200 -> 429 -> Sleep Retry-After -> 200)', () => {
+  describe('HTTP Client Recovery Flow (200 -> 429 -> Sleep Retry-After -> 200)', () => {
     it('allows burst up to capacity, blocks with 429, and recovers to 200 OK after waiting', async () => {
       const app = createExpressApp();
       app.get(
@@ -455,7 +455,7 @@ describe('SmartRate v5 — Day 3: Token Bucket Concurrency, Identity, Distribute
     });
   });
 
-  describe('5. Concurrency & Atomicity Verification under V5 Semantics', () => {
+  describe('Concurrency & Atomicity Verification', () => {
     it('verifies that 50 concurrent requests enforce exact capacity quota under RedisStore', async () => {
       const redisClient = createDistributedRedisClient();
       const store = new RedisStore({ client: redisClient });

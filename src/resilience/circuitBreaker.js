@@ -20,21 +20,21 @@ export class CircuitBreaker extends EventEmitter {
 
     if (typeof failureThreshold !== 'number' || !Number.isInteger(failureThreshold) || failureThreshold <= 0) {
       throw new RangeError(
-        `SmartRate: CircuitBreaker 'failureThreshold' must be a positive integer (received: ${failureThreshold}).`
+        `LimitForge: CircuitBreaker 'failureThreshold' must be a positive integer (received: ${failureThreshold}).`
       );
     }
     if (typeof resetTimeoutMs !== 'number' || !Number.isFinite(resetTimeoutMs) || resetTimeoutMs <= 0) {
       throw new RangeError(
-        `SmartRate: CircuitBreaker 'resetTimeoutMs' must be a positive number in milliseconds (received: ${resetTimeoutMs}).`
+        `LimitForge: CircuitBreaker 'resetTimeoutMs' must be a positive number in milliseconds (received: ${resetTimeoutMs}).`
       );
     }
     if (typeof successThreshold !== 'number' || !Number.isInteger(successThreshold) || successThreshold <= 0) {
       throw new RangeError(
-        `SmartRate: CircuitBreaker 'successThreshold' must be a positive integer (received: ${successThreshold}).`
+        `LimitForge: CircuitBreaker 'successThreshold' must be a positive integer (received: ${successThreshold}).`
       );
     }
     if (typeof isFailure !== 'function') {
-      throw new TypeError("SmartRate: CircuitBreaker 'isFailure' must be a function.");
+      throw new TypeError("LimitForge: CircuitBreaker 'isFailure' must be a function.");
     }
 
     this.failureThreshold = failureThreshold;
@@ -119,14 +119,14 @@ export class CircuitBreaker extends EventEmitter {
 
   async execute(fn) {
     if (typeof fn !== 'function') {
-      throw new TypeError("SmartRate: CircuitBreaker.execute() expects a function argument.");
+      throw new TypeError("LimitForge: CircuitBreaker.execute() expects a function argument.");
     }
 
     const currentState = this.getState();
     if (currentState === CIRCUIT_STATE.OPEN) {
       const remainingMs = Math.max(0, this.nextAttempt - Date.now());
       throw new CircuitBreakerOpenError(
-        `SmartRate: Circuit breaker is OPEN. Fast-failing without calling store (resets in ${remainingMs}ms).`,
+        `LimitForge: Circuit breaker is OPEN. Fast-failing without calling store (resets in ${remainingMs}ms).`,
         remainingMs
       );
     }
@@ -135,7 +135,7 @@ export class CircuitBreaker extends EventEmitter {
     if (currentState === CIRCUIT_STATE.HALF_OPEN) {
       if (this.probeInFlight) {
         throw new CircuitBreakerOpenError(
-          'SmartRate: Circuit breaker is HALF_OPEN and a canary probe is already in-flight.',
+          'LimitForge: Circuit breaker is HALF_OPEN and a canary probe is already in-flight.',
           Math.max(0, this.nextAttempt - Date.now())
         );
       }

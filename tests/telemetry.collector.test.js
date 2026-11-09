@@ -18,9 +18,9 @@ import {
   StoreTimeoutError
 } from '../src/index.js';
 
-describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () => {
+describe('Telemetry Foundation & MetricsCollector', () => {
 
-  describe('1. Route Normalization & Cardinality Guard', () => {
+  describe('Route Normalization & Cardinality Guard', () => {
     it('sanitizes query parameters from URLs', () => {
       assert.equal(sanitizePath('/api/items?limit=10&page=2'), '/api/items');
     });
@@ -85,7 +85,7 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
     });
   });
 
-  describe('2. MetricsCollector Core Unit Semantics', () => {
+  describe('MetricsCollector Core Unit Semantics', () => {
     let collector;
 
     beforeEach(() => {
@@ -226,34 +226,34 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
     });
   });
 
-  describe('3. RateLimiter Telemetry Integration Options Validation', () => {
+  describe('RateLimiter Telemetry Integration Options Validation', () => {
     it('throws TypeError if metrics option is not boolean', () => {
       assert.throws(
         () => rateLimiter({ limit: 5, windowMs: 1000, metrics: 'yes' }),
-        /SmartRate: 'metrics' must be a boolean/
+        /LimitForge: 'metrics' must be a boolean/
       );
     });
 
     it('throws TypeError if metricsCollector is not an object with recordRequest', () => {
       assert.throws(
         () => rateLimiter({ limit: 5, windowMs: 1000, metricsCollector: 'badCollector' }),
-        /SmartRate: 'metricsCollector' must be an object implementing a recordRequest\(\) method/
+        /LimitForge: 'metricsCollector' must be an object implementing a recordRequest\(\) method/
       );
       assert.throws(
         () => rateLimiter({ limit: 5, windowMs: 1000, metricsCollector: {} }),
-        /SmartRate: 'metricsCollector' must be an object implementing a recordRequest\(\) method/
+        /LimitForge: 'metricsCollector' must be an object implementing a recordRequest\(\) method/
       );
     });
 
     it('throws TypeError if routeNormalizer is not a function', () => {
       assert.throws(
         () => rateLimiter({ limit: 5, windowMs: 1000, routeNormalizer: 'not-a-fn' }),
-        /SmartRate: 'routeNormalizer' must be a function/
+        /LimitForge: 'routeNormalizer' must be a function/
       );
     });
   });
 
-  describe('4. Express Integration — Request Outcomes & Route Cardinality', () => {
+  describe('Express Integration — Request Outcomes & Route Cardinality', () => {
     let collector;
     let app;
 
@@ -329,7 +329,7 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
     });
   });
 
-  describe('5. Express Integration — Failure Modes, Degradation & Circuit Breaker', () => {
+  describe('Express Integration — Failure Modes, Degradation & Circuit Breaker', () => {
     it('records store errors, degradation, and allowed request on fail-open', async () => {
       const collector = new MetricsCollector();
       const app = express();
@@ -534,7 +534,7 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
     });
   });
 
-  describe('6. Default Singleton Instance Behavior', () => {
+  describe('Default Singleton Instance Behavior', () => {
     it('uses defaultMetricsCollector when metrics: true is provided', async () => {
       defaultMetricsCollector.reset();
 
@@ -555,7 +555,7 @@ describe('SmartRate v7 — Day 1: Telemetry Foundation & MetricsCollector', () =
     });
   });
 
-  describe('7. Hardening: ResilientStore Telemetry, Breaker Isolation, and Cardinality Bounds', () => {
+  describe('Hardening: ResilientStore Telemetry, Breaker Isolation, and Cardinality Bounds', () => {
     it('sanitizes ULID segments with :id in routeNormalizer', () => {
       assert.equal(
         sanitizePath('/orders/01ARZ3NDEKTSV4RRFFQ69G5FAV'),
